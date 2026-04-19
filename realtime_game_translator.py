@@ -5,7 +5,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import threading
 import time
@@ -22,7 +21,6 @@ import win32gui
 from PIL import Image, ImageOps
 
 
-DEFAULT_STEAM_URL = os.path.join(os.path.expanduser("~"), "Desktop", "Little Busters! English Edition.url")
 DEFAULT_DEEPSEEK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Deepseek Key.txt")
 DEFAULT_GROK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Grok Key.txt")
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -101,27 +99,29 @@ class WindowInfo:
 
 def find_window(title_part: str) -> WindowInfo | None:
     needle = title_part.casefold().strip()
-    matches: list[WindowInfo] = []
+    for window in list_capture_windows():
+        if not needle or needle in window.title.casefold():
+            return window
+    return None
+
+
+def list_capture_windows() -> list[WindowInfo]:
+    blocked_titles = {"Program Manager", "Game Dialogue Translator", "GalgameDialogueTranslator"}
+    windows: list[WindowInfo] = []
 
     def visit(hwnd: int, _extra: object) -> bool:
         if not win32gui.IsWindowVisible(hwnd):
             return True
-        title = win32gui.GetWindowText(hwnd)
-        if title and needle in title.casefold():
-            rect = win32gui.GetWindowRect(hwnd)
-            if rect[2] > rect[0] and rect[3] > rect[1]:
-                matches.append(WindowInfo(hwnd, title, rect))
+        title = win32gui.GetWindowText(hwnd).strip()
+        if not title or title in blocked_titles:
+            return True
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        if right - left >= 240 and bottom - top >= 160:
+            windows.append(WindowInfo(hwnd, title, (left, top, right, bottom)))
         return True
 
     win32gui.EnumWindows(visit, None)
-    return matches[0] if matches else None
-
-
-def open_steam_shortcut(path: str = DEFAULT_STEAM_URL) -> None:
-    if os.path.exists(path):
-        os.startfile(path)  # type: ignore[attr-defined]
-        return
-    subprocess.Popen(["cmd", "/c", "start", "", "steam://rungameid/635940"], shell=False)
+    return windows
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -472,7 +472,7 @@ class TranslatorApp:
         self.stop_event = threading.Event()
         self.last_ocr_text = ""
         self.translation_cache: dict[str, str] = {}
-        self.status_text = tk.StringVar(value="等待开始")
+        self.status_text = tk.StringVar(value="Ready")
 
         self.title_var = tk.StringVar(value=args.title)
         self.target_language_var = tk.StringVar(value=args.target_language)
@@ -503,9 +503,13 @@ class TranslatorApp:
         self.last_translated_ocr_text = ""
         self.last_displayed_translation = ""
         self.recent_source_lines: list[str] = []
+        self.window_choice_var = tk.StringVar(value="")
+        self.window_choices: dict[str, WindowInfo] = {}
+        self.window_combo: ttk.Combobox | None = None
         self.model_combo: ttk.Combobox | None = None
 
         self._build_ui()
+        self.refresh_window_list()
         self._sync_api_provider_fields()
         self.translator_var.trace_add("write", lambda *_args: self._on_provider_changed())
         self.api_url_var.trace_add("write", lambda *_args: self._on_api_url_changed())
@@ -515,25 +519,25 @@ class TranslatorApp:
         controls = ttk.Frame(root, padding=8)
         controls.pack(fill="x")
 
-        ttk.Label(controls, text="窗口标题").grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, text="Window title").grid(row=0, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.title_var, width=26).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(controls, text="贴到游戏旁", command=self.place_beside_game).grid(row=0, column=2, padx=3)
-        ttk.Button(controls, text="启动游戏", command=open_steam_shortcut).grid(row=0, column=3, padx=3)
+        ttk.Button(controls, text="Refresh windows", command=self.refresh_window_list).grid(row=0, column=2, padx=3)
+        ttk.Button(controls, text="Place beside", command=self.place_beside_game).grid(row=0, column=3, padx=3)
 
-        ttk.Label(controls, text="目标语言").grid(row=1, column=0, sticky="w")
+        ttk.Label(controls, text="Target language").grid(row=1, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.target_language_var, width=14).grid(row=1, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text="模型").grid(row=1, column=2, sticky="e")
+        ttk.Label(controls, text="Model").grid(row=1, column=2, sticky="e")
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, width=18)
         self.model_combo.grid(row=1, column=3, sticky="ew", padx=3)
 
-        ttk.Label(controls, text="间隔 ms").grid(row=2, column=0, sticky="w")
+        ttk.Label(controls, text="Interval ms").grid(row=2, column=0, sticky="w")
         ttk.Spinbox(controls, from_=500, to=10000, increment=250, textvariable=self.interval_var, width=10).grid(
             row=2, column=1, sticky="w", padx=6
         )
-        ttk.Button(controls, text="开始", command=self.start).grid(row=2, column=2, padx=3)
-        ttk.Button(controls, text="停止", command=self.stop).grid(row=2, column=3, padx=3, sticky="w")
+        ttk.Button(controls, text="Start", command=self.start).grid(row=2, column=2, padx=3)
+        ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=3, padx=3, sticky="w")
 
-        ttk.Label(controls, text="识别方式").grid(row=3, column=0, sticky="w")
+        ttk.Label(controls, text="OCR").grid(row=3, column=0, sticky="w")
         ttk.Combobox(
             controls,
             textvariable=self.ocr_engine_var,
@@ -541,7 +545,7 @@ class TranslatorApp:
             width=16,
             state="readonly",
         ).grid(row=3, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text="翻译方式").grid(row=3, column=2, sticky="e")
+        ttk.Label(controls, text="Translator").grid(row=3, column=2, sticky="e")
         ttk.Combobox(
             controls,
             textvariable=self.translator_var,
@@ -552,13 +556,24 @@ class TranslatorApp:
 
         ttk.Label(controls, text="Libre URL").grid(row=4, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.libre_url_var, width=26).grid(row=4, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text="目标代码").grid(row=4, column=2, sticky="e")
+        ttk.Label(controls, text="Libre target").grid(row=4, column=2, sticky="e")
         ttk.Entry(controls, textvariable=self.libre_target_var, width=8).grid(row=4, column=3, sticky="w", padx=3)
 
         ttk.Label(controls, text="API URL").grid(row=5, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.api_url_var, width=32).grid(row=5, column=1, sticky="ew", padx=6)
         ttk.Label(controls, text="Key file").grid(row=5, column=2, sticky="e")
         ttk.Entry(controls, textvariable=self.api_key_file_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
+
+        ttk.Label(controls, text="Window list").grid(row=6, column=0, sticky="w")
+        self.window_combo = ttk.Combobox(
+            controls,
+            textvariable=self.window_choice_var,
+            values=(),
+            width=42,
+            state="readonly",
+        )
+        self.window_combo.grid(row=6, column=1, columnspan=3, sticky="ew", padx=6, pady=(3, 0))
+        self.window_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_window_selected())
 
         ttk.Label(controls, text="Context").grid(row=7, column=0, sticky="w")
         ttk.Spinbox(controls, from_=0, to=12, increment=1, textvariable=self.context_lines_var, width=8).grid(
@@ -569,14 +584,14 @@ class TranslatorApp:
             row=7, column=3, sticky="w", padx=3
         )
 
-        crop = ttk.LabelFrame(root, text="字幕区域占游戏窗口比例", padding=8)
+        crop = ttk.LabelFrame(root, text="Subtitle crop area ratios", padding=8)
         crop.pack(fill="x", padx=8, pady=(0, 8))
         for index, (label, var) in enumerate(
             [
-                ("左", self.left_var),
-                ("上", self.top_var),
-                ("右", self.right_var),
-                ("下", self.bottom_var),
+                ("Left", self.left_var),
+                ("Top", self.top_var),
+                ("Right", self.right_var),
+                ("Bottom", self.bottom_var),
             ]
         ):
             ttk.Label(crop, text=label).grid(row=0, column=index * 2, sticky="e")
@@ -586,7 +601,11 @@ class TranslatorApp:
 
         self.output = tk.Text(root, wrap="word", font=("Microsoft YaHei UI", 13), height=11)
         self.output.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.output.insert("1.0", "点击“开始”后，保持游戏对话框可见。\n默认抓取窗口底部 30% 区域。")
+        self.output.insert(
+            "1.0",
+            "Select a game window, then click Start.\n"
+            "The default crop captures the lower part of the game window.",
+        )
 
         status = ttk.Label(root, textvariable=self.status_text, anchor="w", padding=(8, 0, 8, 8))
         status.pack(fill="x")
@@ -599,17 +618,35 @@ class TranslatorApp:
         self.stop_event.clear()
         self.worker = threading.Thread(target=self._loop, daemon=True)
         self.worker.start()
-        self.status_text.set("运行中")
+        self.status_text.set("Running")
 
     def stop(self) -> None:
         self.running = False
         self.stop_event.set()
-        self.status_text.set("已停止")
+        self.status_text.set("Stopped")
+
+    def refresh_window_list(self) -> None:
+        windows = list_capture_windows()
+        self.window_choices = {f"{window.title}  [{window.hwnd}]": window for window in windows}
+        values = tuple(self.window_choices.keys())
+        if self.window_combo is not None:
+            self.window_combo.configure(values=values)
+        if values and not self.window_choice_var.get():
+            self.window_choice_var.set(values[0])
+            self._on_window_selected()
+
+    def _on_window_selected(self) -> None:
+        selected = self.window_choices.get(self.window_choice_var.get())
+        if selected:
+            self.title_var.set(selected.title)
 
     def place_beside_game(self) -> None:
-        window = find_window(self.title_var.get())
+        window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
         if not window:
-            messagebox.showwarning("找不到窗口", f"没有找到标题包含“{self.title_var.get()}”的窗口。")
+            messagebox.showwarning(
+                "Window not found",
+                "Select a window from the list or enter part of the game window title.",
+            )
             return
         left, top, right, bottom = window.rect
         width = 580
@@ -663,7 +700,7 @@ class TranslatorApp:
         with mss.mss() as capture:
             while not self.stop_event.is_set():
                 try:
-                    window = find_window(self.title_var.get())
+                    window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
                     if not window:
                         self.root.after(0, self.status_text.set, "找不到游戏窗口")
                         time.sleep(1)
@@ -800,7 +837,7 @@ class TranslatorApp:
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Realtime OCR translator for visual novel game windows.")
-    parser.add_argument("--title", default="Little Busters", help="Part of the game window title to capture.")
+    parser.add_argument("--title", default="", help="Part of the game window title to capture. Leave empty to select from the window list.")
     parser.add_argument("--target-language", default="Simplified Chinese", help="Translation target language.")
     parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"), help="OpenAI model name.")
     parser.add_argument(

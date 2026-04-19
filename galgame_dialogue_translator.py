@@ -5,8 +5,6 @@ if __name__ == "__main__":
     raise SystemExit(
         main(
             [
-                "--title",
-                "Little Busters! English Edition",
                 "--ocr-engine",
                 "tesseract",
                 "--translator",

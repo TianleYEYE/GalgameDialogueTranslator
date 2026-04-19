@@ -15,7 +15,6 @@ if (-not $KeyFile) {
 }
 
 & $Python .\realtime_game_translator.py `
-    --title "Little Busters! English Edition" `
     --ocr-engine tesseract `
     --translator grok `
     --target-language "Simplified Chinese" `

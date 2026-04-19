@@ -10,7 +10,6 @@ if (-not (Test-Path -LiteralPath $Python)) {
 }
 
 & $Python .\realtime_game_translator.py `
-    --title "Little Busters! English Edition" `
     --ocr-engine tesseract `
     --translator argos `
     --libre-url "http://127.0.0.1:5000" `
