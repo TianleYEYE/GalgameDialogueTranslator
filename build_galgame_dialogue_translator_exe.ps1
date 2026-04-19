@@ -18,6 +18,7 @@ $DistDir = Join-Path $ScriptDir 'dist'
     --clean `
     --windowed `
     --onefile `
+    --noupx `
     --name "GalgameDialogueTranslator" `
     --collect-submodules win32com `
     --hidden-import win32timezone `
