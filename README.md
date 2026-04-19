@@ -1,4 +1,4 @@
-# Realtime Game Dialogue Translator
+# GalgameDialogueTranslator
 
 External Windows overlay translator for `Little Busters! English Edition`.
 
