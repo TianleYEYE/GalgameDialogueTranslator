@@ -12,6 +12,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from tkinter import messagebox, ttk
+from typing import Callable
 from urllib import error, request
 
 import mss
@@ -122,6 +123,105 @@ def list_capture_windows() -> list[WindowInfo]:
 
     win32gui.EnumWindows(visit, None)
     return windows
+
+
+def clamp_ratio(value: float) -> float:
+    return min(max(value, 0.0), 1.0)
+
+
+def select_region_for_window(
+    root: tk.Tk,
+    window: WindowInfo,
+    on_selected: Callable[[tuple[float, float, float, float]], None],
+    on_cancelled: Callable[[], None],
+) -> None:
+    left, top, right, bottom = window.rect
+    width = max(right - left, 1)
+    height = max(bottom - top, 1)
+
+    selector = tk.Toplevel(root)
+    selector.overrideredirect(True)
+    selector.attributes("-topmost", True)
+    selector.attributes("-alpha", 0.35)
+    selector.configure(bg="black")
+    selector.geometry(f"{width}x{height}+{left}+{top}")
+    selector.focus_force()
+    selector.grab_set()
+
+    canvas = tk.Canvas(selector, cursor="crosshair", bg="black", highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    canvas.create_text(
+        width // 2,
+        28,
+        text="Drag to select subtitle area. Right click or Esc to cancel.",
+        fill="white",
+        font=("Segoe UI", 12, "bold"),
+    )
+
+    state: dict[str, int | None] = {"start_x": None, "start_y": None, "rect": None}
+
+    def close_cancelled(_event: object | None = None) -> None:
+        try:
+            selector.grab_release()
+        except Exception:
+            pass
+        selector.destroy()
+        on_cancelled()
+
+    def on_press(event: tk.Event) -> None:
+        state["start_x"] = int(event.x)
+        state["start_y"] = int(event.y)
+        if state["rect"] is not None:
+            canvas.delete(state["rect"])
+        state["rect"] = canvas.create_rectangle(
+            event.x,
+            event.y,
+            event.x,
+            event.y,
+            outline="#00e5ff",
+            width=3,
+            fill="#00e5ff",
+            stipple="gray25",
+        )
+
+    def on_drag(event: tk.Event) -> None:
+        if state["rect"] is None or state["start_x"] is None or state["start_y"] is None:
+            return
+        x = min(max(int(event.x), 0), width)
+        y = min(max(int(event.y), 0), height)
+        canvas.coords(state["rect"], state["start_x"], state["start_y"], x, y)
+
+    def on_release(event: tk.Event) -> None:
+        if state["start_x"] is None or state["start_y"] is None:
+            close_cancelled()
+            return
+        end_x = min(max(int(event.x), 0), width)
+        end_y = min(max(int(event.y), 0), height)
+        x1, x2 = sorted((state["start_x"], end_x))
+        y1, y2 = sorted((state["start_y"], end_y))
+        if x2 - x1 < 20 or y2 - y1 < 20:
+            close_cancelled()
+            return
+
+        try:
+            selector.grab_release()
+        except Exception:
+            pass
+        selector.destroy()
+        on_selected(
+            (
+                clamp_ratio(x1 / width),
+                clamp_ratio(y1 / height),
+                clamp_ratio(x2 / width),
+                clamp_ratio(y2 / height),
+            )
+        )
+
+    selector.bind("<Escape>", close_cancelled)
+    selector.bind("<Button-3>", close_cancelled)
+    canvas.bind("<ButtonPress-1>", on_press)
+    canvas.bind("<B1-Motion>", on_drag)
+    canvas.bind("<ButtonRelease-1>", on_release)
 
 
 def normalize_ocr_text(text: str) -> str:
@@ -584,8 +684,11 @@ class TranslatorApp:
             row=7, column=3, sticky="w", padx=3
         )
 
-        crop = ttk.LabelFrame(root, text="Subtitle crop area ratios", padding=8)
+        crop = ttk.LabelFrame(root, text="Subtitle crop area", padding=8)
         crop.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(crop, text="Select area", command=self.select_capture_area).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=(0, 10), pady=(0, 6)
+        )
         for index, (label, var) in enumerate(
             [
                 ("Left", self.left_var),
@@ -594,9 +697,9 @@ class TranslatorApp:
                 ("Bottom", self.bottom_var),
             ]
         ):
-            ttk.Label(crop, text=label).grid(row=0, column=index * 2, sticky="e")
+            ttk.Label(crop, text=label).grid(row=1, column=index * 2, sticky="e")
             ttk.Spinbox(crop, from_=0.0, to=1.0, increment=0.01, textvariable=var, width=7).grid(
-                row=0, column=index * 2 + 1, padx=(3, 10)
+                row=1, column=index * 2 + 1, padx=(3, 10)
             )
 
         self.output = tk.Text(root, wrap="word", font=("Microsoft YaHei UI", 13), height=11)
@@ -657,6 +760,29 @@ class TranslatorApp:
             win32gui.SetWindowPos(window.hwnd, None, left, top, right - left, bottom - top, win32con.SWP_SHOWWINDOW)
         except Exception:
             pass
+
+    def select_capture_area(self) -> None:
+        window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
+        if not window:
+            messagebox.showwarning(
+                "Window not found",
+                "Select a window from the list or enter part of the game window title before selecting an area.",
+            )
+            return
+        self.status_text.set("Drag over the game window to select the subtitle area")
+
+        def apply_region(region: tuple[float, float, float, float]) -> None:
+            left, top, right, bottom = region
+            self.left_var.set(round(left, 3))
+            self.top_var.set(round(top, 3))
+            self.right_var.set(round(right, 3))
+            self.bottom_var.set(round(bottom, 3))
+            self.status_text.set("Capture area updated")
+
+        def cancel_region() -> None:
+            self.status_text.set("Capture area selection cancelled")
+
+        select_region_for_window(self.root, window, apply_region, cancel_region)
 
     def _default_api_url(self, provider: str) -> str:
         return str(API_PROVIDER_CONFIGS.get(provider, {}).get("base_url", ""))
