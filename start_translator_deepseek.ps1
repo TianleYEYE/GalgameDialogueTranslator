@@ -9,6 +9,11 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = 'python'
 }
 
+$KeyFile = $env:DEEPSEEK_API_KEY_FILE
+if (-not $KeyFile) {
+    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\Deepseek Key.txt'
+}
+
 & $Python .\realtime_game_translator.py `
     --title "Little Busters! English Edition" `
     --ocr-engine tesseract `
@@ -16,4 +21,4 @@ if (-not (Test-Path -LiteralPath $Python)) {
     --target-language "Simplified Chinese" `
     --model "deepseek-chat" `
     --api-url "https://api.deepseek.com" `
-    --api-key-file "C:\Users\Administrator\Desktop\Deepseek Key.txt"
+    --api-key-file $KeyFile

@@ -1,118 +1,148 @@
 # GalgameDialogueTranslator
 
-External Windows overlay translator for `Little Busters! English Edition`.
+> **AI generated project notice:** This project was generated entirely with AI assistance.
+>
+> **项目标记：本项目完全使用 AI 生成。**
 
-This tool does not modify game files or inject into the game process. It captures the subtitle area from the game window, runs OCR, translates the text, and shows the Chinese translation in a separate always-on-top window.
+GalgameDialogueTranslator is a Windows overlay translator for visual novels and other dialogue-heavy games.
+It captures a selected subtitle area from the game window, runs OCR, sends the recognized text to a translation backend, and displays the translated text in a separate always-on-top window.
 
-## Fully Local Free Setup
+The tool does not modify game files, patch memory, or inject into the game process.
 
-This setup uses:
+## Quick Start
 
-- Tesseract OCR for English text recognition.
-- LibreTranslate/Argos local models for English-to-Chinese translation.
+For most users, use the packaged release instead of running from source.
 
-No OpenAI API key is required.
+1. Download `GalgameDialogueTranslator.exe` from the latest GitHub release.
+2. Install [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki) if OCR does not work.
+3. Double-click `GalgameDialogueTranslator.exe`.
+4. Open your game in windowed or borderless-window mode.
+5. In the app:
+   - Set `Window title` to part of your game window title.
+   - Set `OCR` to `auto` or `tesseract`.
+   - Set `Translator` to `deepseek`, `grok`, `argos`, or `libretranslate`.
+   - Click `Place beside game`.
+   - Click `Start`.
 
-## Install
+If the app captures the wrong area, adjust the subtitle crop ratios near the bottom of the window.
 
-Open PowerShell in this folder:
+## Translation Backends
+
+### DeepSeek
+
+Use this when you want online translation quality with a DeepSeek API key.
+
+Set either:
+
+- Environment variable: `DEEPSEEK_API_KEY`
+- Or a key file path in the app's `Key file` field
+
+Recommended values:
+
+- `API URL`: `https://api.deepseek.com`
+- `Model`: `deepseek-chat`
+
+### xAI / Grok
+
+Use this when you want online translation with an xAI API key.
+
+Set either:
+
+- Environment variable: `XAI_API_KEY`
+- Or a key file path in the app's `Key file` field
+
+Recommended values:
+
+- `API URL`: `https://api.x.ai/v1`
+- `Model`: `grok-4`
+
+### Local / Free Mode
+
+Local mode uses Tesseract OCR and local Argos/LibreTranslate models. It does not require an OpenAI, DeepSeek, or xAI API key.
+
+For source users, run:
 
 ```powershell
-cd F:\Work\UnrealProjects\Providence\Scripts\realtime_translator
 .\install_local_stack.ps1
-```
-
-The install script will:
-
-- Install Tesseract OCR with `winget` if it is missing.
-- Create `.venv-libretranslate`.
-- Install LibreTranslate into that virtual environment.
-
-If Tesseract is installed but not visible in the current shell, open a new PowerShell window or add this path to `PATH`:
-
-```powershell
-C:\Program Files\Tesseract-OCR
-```
-
-## Run
-
-Use two PowerShell windows.
-
-Start the overlay translator:
-
-```powershell
-cd F:\Work\UnrealProjects\Providence\Scripts\realtime_translator
 .\start_translator_local.ps1
 ```
 
-In the overlay:
+The first setup may take time because translation models need to be installed or downloaded.
 
-1. Click `贴到游戏旁`.
-2. Click `开始`.
-3. If OCR misses text, adjust the subtitle area ratios.
+## Run From Source
 
-## Manual Command
+Requirements:
+
+- Windows
+- Python 3.10 or newer
+- Tesseract OCR
+
+Install Python dependencies:
 
 ```powershell
-python .\realtime_game_translator.py `
-    --title "Little Busters! English Edition" `
-    --ocr-engine tesseract `
-    --translator argos `
-    --libre-url "http://127.0.0.1:5000" `
-    --libre-target zh-Hans
+python -m pip install -r requirements.txt
 ```
 
-If you specifically want the HTTP service, run `.\start_libretranslate.ps1` and choose `libretranslate` in the overlay. On this machine, the direct `argos` backend is the verified path.
-
-## DeepSeek Backend
-
-To use DeepSeek for better translation quality while keeping Tesseract OCR local:
+Run with DeepSeek:
 
 ```powershell
-cd F:\Work\UnrealProjects\Providence\Scripts\realtime_translator
+$env:DEEPSEEK_API_KEY = "your_deepseek_api_key"
 .\start_translator_deepseek.ps1
 ```
 
-The script reads the API key from:
-
-```text
-C:\Users\Administrator\Desktop\Deepseek Key.txt
-```
-
-You can also set `DEEPSEEK_API_KEY` in the environment instead of using the key file.
-
-## Grok Backend
-
-To use xAI/Grok with Tesseract OCR:
+Run with xAI/Grok:
 
 ```powershell
-cd F:\Work\UnrealProjects\Providence\Scripts\realtime_translator
+$env:XAI_API_KEY = "your_xai_api_key"
 .\start_translator_grok.ps1
 ```
 
-The script reads the API key from:
+Run local mode:
 
-```text
-C:\Users\Administrator\Desktop\Grok Key.txt
+```powershell
+.\install_local_stack.ps1
+.\start_translator_local.ps1
 ```
 
-It uses:
+## Build The EXE
 
-- Base URL: `https://api.x.ai/v1`
-- Model: `grok-4`
-- Backend: `--translator grok`
+To build a single-file Windows executable:
 
-The API URL and model selector are linked in the UI. If the API URL contains `api.x.ai`, the provider switches to Grok and the model dropdown shows Grok models. If the API URL contains `deepseek`, the provider switches to DeepSeek and the dropdown shows DeepSeek models.
+```powershell
+.\build_galgame_dialogue_translator_exe.ps1
+```
 
-There is only one API key file input in the UI. Use the Grok key file for `https://api.x.ai/v1` and the DeepSeek key file for `https://api.deepseek.com`.
+The output file will be:
 
-The overlay also has two quality controls:
+```text
+dist\GalgameDialogueTranslator.exe
+```
 
-- `Context`: how many recent OCR dialogue lines are sent as context.
-- `Stable reads`: how many identical OCR reads are required before refreshing the displayed translation. Increase this if the translation text flickers.
+## Key Files
+
+You can use environment variables, which is the simplest option:
+
+- `DEEPSEEK_API_KEY`
+- `XAI_API_KEY`
+
+You can also put your key in a plain text file and select that file in the app's `Key file` field.
+
+Do not commit API key files to Git.
+
+## OCR Stability
+
+If the translation flickers or updates multiple times for the same line:
+
+- Increase `Stable reads` to `4` or `5`.
+- Keep `OCR` set to `tesseract` if Tesseract is installed.
+- Tighten the subtitle crop area so it captures only dialogue text.
+
+If translations feel delayed, lower `Stable reads` to `2` or `3`.
 
 ## Notes
 
-- Use windowed or borderless game mode. Exclusive fullscreen may not capture correctly.
-- LibreTranslate model download may take time on the first run.
-- Translation quality is free/local, so it may be less natural than commercial APIs.
+- Windowed or borderless-window game mode is recommended.
+- Exclusive fullscreen may fail to capture correctly.
+- OCR accuracy depends heavily on font size, contrast, and crop area.
+- Online backends require valid API keys and network access.
+- Local translation quality may be less natural than paid online models.

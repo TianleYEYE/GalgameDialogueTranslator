@@ -22,9 +22,9 @@ import win32gui
 from PIL import Image, ImageOps
 
 
-DEFAULT_STEAM_URL = r"C:\Users\Administrator\Desktop\Little Busters! English Edition.url"
-DEFAULT_DEEPSEEK_KEY_FILE = r"C:\Users\Administrator\Desktop\Deepseek Key.txt"
-DEFAULT_GROK_KEY_FILE = r"C:\Users\Administrator\Desktop\Grok Key.txt"
+DEFAULT_STEAM_URL = os.path.join(os.path.expanduser("~"), "Desktop", "Little Busters! English Edition.url")
+DEFAULT_DEEPSEEK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Deepseek Key.txt")
+DEFAULT_GROK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Grok Key.txt")
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 OCR_SIMILARITY_THRESHOLD = 0.78
 

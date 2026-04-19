@@ -9,6 +9,11 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = 'python'
 }
 
+$KeyFile = $env:GROK_API_KEY_FILE
+if (-not $KeyFile) {
+    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\Grok Key.txt'
+}
+
 & $Python .\realtime_game_translator.py `
     --title "Little Busters! English Edition" `
     --ocr-engine tesseract `
@@ -16,6 +21,6 @@ if (-not (Test-Path -LiteralPath $Python)) {
     --target-language "Simplified Chinese" `
     --model "grok-4" `
     --api-url "https://api.x.ai/v1" `
-    --api-key-file "C:\Users\Administrator\Desktop\Grok Key.txt" `
+    --api-key-file $KeyFile `
     --context-lines 6 `
     --stable-reads 2

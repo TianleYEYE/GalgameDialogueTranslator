@@ -17,8 +17,6 @@ if __name__ == "__main__":
                 "grok-4",
                 "--api-url",
                 "https://api.x.ai/v1",
-                "--api-key-file",
-                r"C:\Users\Administrator\Desktop\Grok Key.txt",
                 "--context-lines",
                 "6",
                 "--stable-reads",
