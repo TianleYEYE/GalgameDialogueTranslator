@@ -18,15 +18,15 @@ $DistDir = Join-Path $ScriptDir 'dist'
     --clean `
     --windowed `
     --onefile `
-    --name "GrokGameTranslator" `
+    --name "GalgameDialogueTranslator" `
     --collect-submodules win32com `
     --hidden-import win32timezone `
     --hidden-import PIL.Image `
     --hidden-import PIL.ImageOps `
     --distpath $DistDir `
     --workpath $BuildDir `
-    .\grok_game_translator.py
+    .\galgame_dialogue_translator.py
 
 Write-Host ''
 Write-Host 'Built:'
-Write-Host (Join-Path $DistDir 'GrokGameTranslator.exe')
+Write-Host (Join-Path $DistDir 'GalgameDialogueTranslator.exe')

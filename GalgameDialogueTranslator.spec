@@ -6,7 +6,7 @@ hiddenimports += collect_submodules('win32com')
 
 
 a = Analysis(
-    ['grok_game_translator.py'],
+    ['galgame_dialogue_translator.py'],
     pathex=[],
     binaries=[],
     datas=[],
@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='GrokGameTranslator',
+    name='GalgameDialogueTranslator',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
