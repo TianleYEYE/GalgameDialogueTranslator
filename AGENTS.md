@@ -19,6 +19,8 @@ This repository contains `GalgameDialogueTranslator`, a Windows desktop overlay 
 
 - The app should stay generic. Do not hard-code a specific game title, game path, Steam app id, or user machine path.
 - Users should be able to select any visible game window through the window list or by entering part of a window title.
+- Online DeepSeek/Grok translation performs a one-time Wikipedia context lookup per selected window title. Keep this cached and non-blocking beyond the first lookup where possible.
+- Character-name consistency is handled through translation prompt context. Preserve this rule when changing prompt construction.
 - The tool must not modify game files, inject into game processes, or patch memory.
 - Keep API keys out of source control. Use environment variables or user-selected key files.
 - Preserve the notice in `README.md` that the project was generated entirely with AI assistance.

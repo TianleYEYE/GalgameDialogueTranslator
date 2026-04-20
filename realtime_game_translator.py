@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from tkinter import messagebox, ttk
 from typing import Callable
-from urllib import error, request
+from urllib import error, parse, request
 
 import mss
 import pytesseract
@@ -26,6 +26,7 @@ DEFAULT_DEEPSEEK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "De
 DEFAULT_GROK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Grok Key.txt")
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 OCR_SIMILARITY_THRESHOLD = 0.78
+WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
 API_PROVIDER_CONFIGS = {
     "deepseek": {
@@ -89,6 +90,84 @@ def ocr_text_quality_score(text: str) -> tuple[int, int, int]:
     words = len(re.findall(r"[A-Za-z]{2,}", text))
     noise = len(re.findall(r"[^A-Za-z0-9\s,.!?;:'\"-]", text))
     return (words, letters - noise * 4, -len(text))
+
+
+def clean_work_title(window_title: str) -> str:
+    title = re.sub(r"\s+\[[0-9]+\]$", "", window_title).strip()
+    title = re.sub(r"\s+-\s+(Steam|Unity|Ren'Py|NW.js|Google Chrome|Microsoft Edge)$", "", title, flags=re.I)
+    title = re.sub(r"\s+\(.*?\)$", "", title).strip()
+    return title or window_title.strip()
+
+
+def fetch_wiki_context(work_title: str) -> str:
+    query = clean_work_title(work_title)
+    if not query:
+        return ""
+    try:
+        search_url = "https://en.wikipedia.org/w/api.php?" + parse.urlencode(
+            {
+                "action": "query",
+                "list": "search",
+                "srsearch": f"{query} visual novel game",
+                "srlimit": "3",
+                "format": "json",
+                "utf8": "1",
+            }
+        )
+        search_req = request.Request(search_url, headers={"User-Agent": WIKI_USER_AGENT})
+        with request.urlopen(search_req, timeout=8) as response:
+            search_body = json.loads(response.read().decode("utf-8"))
+        results = search_body.get("query", {}).get("search", [])
+        if not results:
+            return ""
+
+        page_title = str(results[0].get("title", "")).strip()
+        if not page_title:
+            return ""
+
+        page_url = "https://en.wikipedia.org/w/api.php?" + parse.urlencode(
+            {
+                "action": "query",
+                "prop": "extracts|links",
+                "exintro": "1",
+                "explaintext": "1",
+                "pllimit": "50",
+                "titles": page_title,
+                "format": "json",
+                "utf8": "1",
+            }
+        )
+        page_req = request.Request(page_url, headers={"User-Agent": WIKI_USER_AGENT})
+        with request.urlopen(page_req, timeout=8) as response:
+            page_body = json.loads(response.read().decode("utf-8"))
+
+        pages = page_body.get("query", {}).get("pages", {})
+        page = next(iter(pages.values()), {}) if pages else {}
+        summary = re.sub(r"\s+", " ", str(page.get("extract", "")).strip())
+        if len(summary) > 900:
+            summary = summary[:900].rsplit(" ", 1)[0] + "..."
+
+        links = []
+        blocked = {"visual novel", "windows", "steam", "playstation", "nintendo switch", "anime", "manga"}
+        for link in page.get("links", [])[:50]:
+            name = str(link.get("title", "")).strip()
+            if not name or ":" in name or name.casefold() in blocked:
+                continue
+            if len(name) <= 48:
+                links.append(name)
+            if len(links) >= 18:
+                break
+
+        parts = [f"Work title from selected window: {query}"]
+        if page_title.casefold() != query.casefold():
+            parts.append(f"Matched wiki page: {page_title}")
+        if summary:
+            parts.append(f"Wiki summary: {summary}")
+        if links:
+            parts.append("Potentially relevant names/terms from wiki: " + "; ".join(links))
+        return "\n".join(parts)
+    except Exception as exc:
+        return f"Wiki lookup unavailable for {query}: {exc}"
 
 
 @dataclass
@@ -342,16 +421,18 @@ def read_secret_from_file(path: str) -> str:
         return ""
 
 
-def build_context_prompt(text: str, context_lines: list[str]) -> str:
-    if not context_lines:
-        return text
-    context = "\n".join(f"- {line}" for line in context_lines[-8:])
-    return (
-        "Recent previous dialogue, for context only:\n"
-        f"{context}\n\n"
-        "Translate only this current dialogue:\n"
-        f"{text}"
-    )
+def build_context_prompt(text: str, context_lines: list[str], work_context: str = "") -> str:
+    sections: list[str] = []
+    if work_context:
+        sections.append(
+            "Work/wiki context for translation consistency. Use it only when relevant and do not summarize it:\n"
+            f"{work_context}"
+        )
+    if context_lines:
+        context = "\n".join(f"- {line}" for line in context_lines[-8:])
+        sections.append(f"Recent previous dialogue, for context only:\n{context}")
+    sections.append("Translate only this current dialogue:\n" + text)
+    return "\n\n".join(sections)
 
 
 def translate_with_chat_completions(
@@ -363,6 +444,7 @@ def translate_with_chat_completions(
     base_url: str,
     api_key_file: str,
     api_key_env: str,
+    work_context: str = "",
 ) -> str:
     api_key = os.environ.get(api_key_env, "").strip() or read_secret_from_file(api_key_file)
     if not api_key:
@@ -377,12 +459,14 @@ def translate_with_chat_completions(
                     "You translate English visual novel dialogue into "
                     f"{target_language}. Preserve speaker names when present. "
                     "Ignore OCR artifacts, random symbols, and garbled UI fragments. "
-                    "Use recent dialogue only to resolve pronouns, names, tone, and omitted subjects. "
+                    "Use wiki/work context and recent dialogue only to resolve setting, character names, pronouns, tone, and omitted subjects. "
+                    "If the line contains speaker labels or character names, keep each character's translated name consistent across the whole work. "
+                    "Do not translate the same character name in multiple different ways unless the source uses a distinct title, nickname, honorific, or relationship term. "
                     "Return one stable natural translation of the current dialogue only. "
-                    "Do not include alternatives, explanations, or OCR text."
+                    "Do not include alternatives, explanations, wiki notes, or OCR text."
                 ),
             },
-            {"role": "user", "content": build_context_prompt(text, context_lines)},
+            {"role": "user", "content": build_context_prompt(text, context_lines, work_context)},
         ],
         "stream": False,
         "temperature": 0,
@@ -420,6 +504,7 @@ def translate_with_deepseek(
     model: str,
     base_url: str,
     api_key_file: str,
+    work_context: str = "",
 ) -> str:
     return translate_with_chat_completions(
         "DeepSeek",
@@ -430,6 +515,7 @@ def translate_with_deepseek(
         base_url,
         api_key_file,
         "DEEPSEEK_API_KEY",
+        work_context,
     )
 
 
@@ -440,6 +526,7 @@ def translate_with_grok(
     model: str,
     base_url: str,
     api_key_file: str,
+    work_context: str = "",
 ) -> str:
     return translate_with_chat_completions(
         "Grok",
@@ -450,10 +537,11 @@ def translate_with_grok(
         base_url,
         api_key_file,
         "XAI_API_KEY",
+        work_context,
     )
 
 
-def translate_text(text: str, args: "TranslatorSettings", context_lines: list[str] | None = None) -> str:
+def translate_text(text: str, args: "TranslatorSettings", context_lines: list[str] | None = None, work_context: str = "") -> str:
     context_lines = context_lines or []
     if args.translator == "argos":
         return translate_with_argos(text, args.libre_target)
@@ -467,6 +555,7 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
             args.model,
             args.api_url or args.deepseek_url,
             args.api_key_file or args.deepseek_api_key_file,
+            work_context,
         )
     if args.translator == "grok":
         return translate_with_grok(
@@ -476,6 +565,7 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
             args.model,
             args.api_url or args.grok_url,
             args.api_key_file or args.grok_api_key_file,
+            work_context,
         )
     return translate_with_openai(text, args.target_language, args.model)
 
@@ -605,6 +695,9 @@ class TranslatorApp:
         self.recent_source_lines: list[str] = []
         self.window_choice_var = tk.StringVar(value="")
         self.window_choices: dict[str, WindowInfo] = {}
+        self.work_context_cache: dict[str, str] = {}
+        self.current_work_context = ""
+        self.current_work_context_key = ""
         self.window_combo: ttk.Combobox | None = None
         self.model_combo: ttk.Combobox | None = None
 
@@ -742,6 +835,8 @@ class TranslatorApp:
         selected = self.window_choices.get(self.window_choice_var.get())
         if selected:
             self.title_var.set(selected.title)
+            self.current_work_context = ""
+            self.current_work_context_key = ""
 
     def place_beside_game(self) -> None:
         window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
@@ -857,10 +952,11 @@ class TranslatorApp:
                         self.root.after(0, self.status_text.set, "正在翻译")
                         settings = self._settings()
                         context = self._translation_context()
-                        cache_key = self._cache_key(ocr_text, settings, context)
+                        work_context = self._work_context_for_window(window, settings)
+                        cache_key = self._cache_key(ocr_text, settings, context, work_context)
                         translation = self.translation_cache.get(cache_key)
                         if translation is None:
-                            translation = translate_text(ocr_text, settings, context)
+                            translation = translate_text(ocr_text, settings, context, work_context)
                             self.translation_cache[cache_key] = translation
                         self.last_ocr_text = ocr_text
                         self.last_translated_ocr_text = ocr_text
@@ -948,6 +1044,21 @@ class TranslatorApp:
             return []
         return self.recent_source_lines[-count:]
 
+    def _work_context_for_window(self, window: WindowInfo, settings: TranslatorSettings) -> str:
+        if settings.translator not in {"deepseek", "grok"}:
+            return ""
+        key = clean_work_title(window.title)
+        if not key:
+            return ""
+        if key == self.current_work_context_key:
+            return self.current_work_context
+        if key not in self.work_context_cache:
+            self.root.after(0, self.status_text.set, "Looking up wiki context")
+            self.work_context_cache[key] = fetch_wiki_context(key)
+        self.current_work_context_key = key
+        self.current_work_context = self.work_context_cache.get(key, "")
+        return self.current_work_context
+
     def _remember_source_line(self, text: str) -> None:
         if not text or (self.recent_source_lines and self.recent_source_lines[-1] == text):
             return
@@ -956,9 +1067,10 @@ class TranslatorApp:
         if len(self.recent_source_lines) > max_lines:
             self.recent_source_lines = self.recent_source_lines[-max_lines:]
 
-    def _cache_key(self, text: str, settings: TranslatorSettings, context: list[str]) -> str:
+    def _cache_key(self, text: str, settings: TranslatorSettings, context: list[str], work_context: str = "") -> str:
         context_key = "\n".join(context) if settings.translator in {"deepseek", "grok"} else ""
-        return f"{settings.translator}|{settings.model}|{settings.target_language}|{context_key}|{text}"
+        work_key = work_context[:500] if settings.translator in {"deepseek", "grok"} else ""
+        return f"{settings.translator}|{settings.model}|{settings.target_language}|{work_key}|{context_key}|{text}"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

@@ -322,3 +322,9 @@ The selected rectangle is saved as `Left / Top / Right / Bottom` ratios relative
 - OCR accuracy depends heavily on font size, contrast, and crop area.
 - Online backends require valid API keys and network access.
 - Local translation quality may be less natural than paid online models.
+
+## Wiki Context / 维基上下文
+
+中文：使用 `deepseek` 或 `grok` 在线翻译时，程序会在当前游戏窗口首次翻译前，根据窗口标题进行一次 Wikipedia 检索。检索到的作品摘要和相关名称会加入翻译上下文，用于辅助理解作品设定、角色关系和专有名词。角色名会被要求保持统一译名，除非原文使用的是明确不同的称谓、昵称、敬称或关系称呼。
+
+English: When using the `deepseek` or `grok` online translator, the app performs one Wikipedia lookup before the first translation for the selected game window. The matched work summary and related names are added to the translation context to help with setting, character relationships, and terminology. Character names are instructed to stay consistent unless the source uses a distinct title, nickname, honorific, or relationship term.
