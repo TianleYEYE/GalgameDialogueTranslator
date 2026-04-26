@@ -9,6 +9,7 @@ This repository contains `GalgameDialogueTranslator`, a Windows desktop overlay 
 - Windows build script: `build_galgame_dialogue_translator_exe.ps1`
 - PyInstaller spec: `GalgameDialogueTranslator.spec`
 - Source run scripts:
+  - `start_translator_openai.ps1`
   - `start_translator_local.ps1`
   - `start_translator_deepseek.ps1`
   - `start_translator_grok.ps1`

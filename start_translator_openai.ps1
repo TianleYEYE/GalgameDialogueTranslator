@@ -9,15 +9,17 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = 'python'
 }
 
-$KeyFile = $env:DEEPSEEK_API_KEY_FILE
+$KeyFile = $env:OPENAI_API_KEY_FILE
 if (-not $KeyFile) {
-    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\Deepseek Key.txt'
+    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\OpenAI Key.txt'
 }
 
 & $Python .\realtime_game_translator.py `
     --ocr-engine tesseract `
-    --translator deepseek `
+    --translator openai `
     --target-language "Simplified Chinese" `
-    --model "deepseek-v4-flash" `
-    --api-url "https://api.deepseek.com" `
-    --api-key-file $KeyFile
+    --model "gpt-5-mini" `
+    --api-url "https://api.openai.com/v1" `
+    --api-key-file $KeyFile `
+    --context-lines 6 `
+    --stable-reads 3

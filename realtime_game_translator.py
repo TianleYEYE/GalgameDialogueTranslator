@@ -22,6 +22,7 @@ import win32gui
 from PIL import Image, ImageOps
 
 
+DEFAULT_OPENAI_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "OpenAI Key.txt")
 DEFAULT_DEEPSEEK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Deepseek Key.txt")
 DEFAULT_GROK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Grok Key.txt")
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -29,10 +30,26 @@ OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
 API_PROVIDER_CONFIGS = {
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "key_file": DEFAULT_OPENAI_KEY_FILE,
+        "models": (
+            "gpt-5.2",
+            "gpt-5-mini",
+            "gpt-5.2-codex",
+            "gpt-5-codex",
+            "gpt-5.1-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.2-pro",
+            "gpt-4.1",
+            "gpt-4o",
+            "gpt-4o-mini",
+        ),
+    },
     "deepseek": {
         "base_url": "https://api.deepseek.com",
         "key_file": DEFAULT_DEEPSEEK_KEY_FILE,
-        "models": ("deepseek-chat", "deepseek-reasoner"),
+        "models": ("deepseek-v4-flash", "deepseek-v4-pro"),
     },
     "grok": {
         "base_url": "https://api.x.ai/v1",
@@ -44,6 +61,8 @@ API_PROVIDER_CONFIGS = {
 
 def detect_api_provider(base_url: str, fallback: str = "") -> str:
     url = base_url.casefold()
+    if "api.openai.com" in url or "openai.com" in url:
+        return "openai"
     if "api.x.ai" in url or "x.ai" in url:
         return "grok"
     if "deepseek" in url:
@@ -324,8 +343,8 @@ def preprocess_for_ocr(image: Image.Image) -> Image.Image:
     return image.point(lambda px: 255 if px > 150 else 0)
 
 
-def translate_with_openai(text: str, target_language: str, model: str) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+def translate_with_openai(text: str, target_language: str, model: str, base_url: str, api_key_file: str) -> str:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip() or read_secret_from_file(api_key_file)
     if not api_key:
         return "未设置 OPENAI_API_KEY。OCR 原文：\n" + text
 
@@ -340,7 +359,7 @@ def translate_with_openai(text: str, target_language: str, model: str) -> str:
     }
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        "https://api.openai.com/v1/responses",
+        base_url.rstrip("/") + "/responses",
         data=data,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -396,6 +415,18 @@ def translate_with_libretranslate(text: str, target_language: str, endpoint: str
     return str(body.get("translatedText", "")).strip() or "LibreTranslate 返回为空。"
 
 
+def read_secret_from_file(path: str) -> str:
+    if not path:
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as file:
+            return file.read().strip()
+    except FileNotFoundError:
+        return ""
+    except Exception:
+        return ""
+
+
 def translate_with_argos(text: str, target_language: str) -> str:
     try:
         import argostranslate.translate
@@ -407,18 +438,6 @@ def translate_with_argos(text: str, target_language: str) -> str:
         return argostranslate.translate.translate(text, "en", target).strip()
     except Exception as exc:
         return f"Argos Translate 翻译失败：{exc}"
-
-
-def read_secret_from_file(path: str) -> str:
-    if not path:
-        return ""
-    try:
-        with open(path, "r", encoding="utf-8-sig") as file:
-            return file.read().strip()
-    except FileNotFoundError:
-        return ""
-    except Exception:
-        return ""
 
 
 def build_context_prompt(text: str, context_lines: list[str], work_context: str = "") -> str:
@@ -567,7 +586,13 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
             args.api_key_file or args.grok_api_key_file,
             work_context,
         )
-    return translate_with_openai(text, args.target_language, args.model)
+    return translate_with_openai(
+        text,
+        args.target_language,
+        args.model,
+        args.api_url or API_PROVIDER_CONFIGS["openai"]["base_url"],
+        args.api_key_file or API_PROVIDER_CONFIGS["openai"]["key_file"],
+    )
 
 
 @dataclass
@@ -589,8 +614,14 @@ class TranslatorSettings:
     stable_reads: int
 
 
-def translate_image_with_openai(image: Image.Image, target_language: str, model: str) -> tuple[str, str]:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+def translate_image_with_openai(
+    image: Image.Image,
+    target_language: str,
+    model: str,
+    base_url: str,
+    api_key_file: str,
+) -> tuple[str, str]:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip() or read_secret_from_file(api_key_file)
     if not api_key:
         return "", "未设置 OPENAI_API_KEY，且未检测到本地 Tesseract OCR。"
 
@@ -621,7 +652,7 @@ def translate_image_with_openai(image: Image.Image, target_language: str, model:
     }
     data = json.dumps(payload).encode("utf-8")
     req = request.Request(
-        "https://api.openai.com/v1/responses",
+        base_url.rstrip("/") + "/responses",
         data=data,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -1006,6 +1037,8 @@ class TranslatorApp:
                 image,
                 self.target_language_var.get().strip() or "Simplified Chinese",
                 self.model_var.get().strip() or "gpt-4o-mini",
+                self.api_url_var.get().strip() or API_PROVIDER_CONFIGS["openai"]["base_url"],
+                self.api_key_file_var.get().strip() or API_PROVIDER_CONFIGS["openai"]["key_file"],
             )
         return "", "未知识别方式。"
 
@@ -1013,10 +1046,10 @@ class TranslatorApp:
         return TranslatorSettings(
             translator=self.translator_var.get().strip() or "argos",
             target_language=self.target_language_var.get().strip() or "Simplified Chinese",
-            model=self.model_var.get().strip() or "gpt-4o-mini",
+            model=self.model_var.get().strip() or "gpt-5-mini",
             libre_url=self.libre_url_var.get().strip() or "http://127.0.0.1:5000",
             libre_target=self.libre_target_var.get().strip() or "zh-Hans",
-            deepseek_model=self.deepseek_model_var.get().strip() or "deepseek-chat",
+            deepseek_model=self.deepseek_model_var.get().strip() or "deepseek-v4-flash",
             deepseek_url=self.deepseek_url_var.get().strip() or "https://api.deepseek.com",
             deepseek_api_key_file=self.deepseek_api_key_file_var.get().strip() or DEFAULT_DEEPSEEK_KEY_FILE,
             grok_model=self.grok_model_var.get().strip() or "grok-4",
@@ -1077,7 +1110,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Realtime OCR translator for visual novel game windows.")
     parser.add_argument("--title", default="", help="Part of the game window title to capture. Leave empty to select from the window list.")
     parser.add_argument("--target-language", default="Simplified Chinese", help="Translation target language.")
-    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"), help="OpenAI model name.")
+    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-5-mini"), help="OpenAI model name.")
     parser.add_argument(
         "--ocr-engine",
         default="tesseract",
@@ -1098,7 +1131,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--libre-target", default="zh-Hans", help="LibreTranslate target language code.")
     parser.add_argument(
         "--deepseek-model",
-        default=os.environ.get("DEEPSEEK_MODEL", "deepseek-chat"),
+        default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
         help="DeepSeek model name.",
     )
     parser.add_argument(
