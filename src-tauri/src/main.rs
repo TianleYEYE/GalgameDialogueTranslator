@@ -80,6 +80,24 @@ struct SelectAreaRequest {
     window_title: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewAreaRequest {
+    window_title: String,
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct PreviewAreaResponse {
+    data_url: String,
+    width: u32,
+    height: u32,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SelectAreaResponse {
@@ -275,6 +293,25 @@ fn select_area_command(app: AppHandle, request: SelectAreaRequest) -> Result<Sel
     parse_json(run_python(command)?)
 }
 
+#[tauri::command]
+fn preview_area_command(app: AppHandle, request: PreviewAreaRequest) -> Result<PreviewAreaResponse, String> {
+    let mut command = python_command(&app)?;
+    command
+        .arg("preview-area")
+        .arg("--window-title")
+        .arg(&request.window_title)
+        .arg("--left")
+        .arg(request.left.to_string())
+        .arg("--top")
+        .arg(request.top.to_string())
+        .arg("--right")
+        .arg(request.right.to_string())
+        .arg("--bottom")
+        .arg(request.bottom.to_string());
+
+    parse_json(run_python(command)?)
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -282,7 +319,8 @@ fn main() {
             list_windows_command,
             ocr_translate_command,
             collect_vocabulary_command,
-            select_area_command
+            select_area_command,
+            preview_area_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

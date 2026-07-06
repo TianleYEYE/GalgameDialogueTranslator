@@ -140,7 +140,12 @@
 
         <div class="settings-panel capture-preview">
           <h3>{{ ui.subtitleArea }}</h3>
+          <button class="preview-refresh" :disabled="isPreviewing" type="button" @click="refreshCapturePreview">
+            {{ isPreviewing ? ui.previewing : ui.refreshPreview }}
+          </button>
           <div class="crop-preview">
+            <img v-if="previewImage" :src="previewImage" alt="Selected subtitle area preview" />
+            <div v-else class="preview-placeholder">{{ ui.noPreview }}</div>
             <div class="crop-box"></div>
           </div>
           <div class="crop-values">
@@ -224,6 +229,21 @@
         </div>
       </section>
 
+      <section class="diagnostic-panel">
+        <button class="vocab-toggle" type="button" @click="showLogPanel = !showLogPanel">
+          <span>▣</span>
+          {{ ui.logs }} ({{ logEntries.length }})
+          <span class="chevron">{{ showLogPanel ? "⌃" : "⌄" }}</span>
+        </button>
+        <div v-if="showLogPanel" class="log-body">
+          <div v-for="entry in logEntries" :key="entry.id" class="log-line" :class="entry.level">
+            <span>{{ entry.time }}</span>
+            <strong>{{ entry.level.toUpperCase() }}</strong>
+            <p>{{ entry.message }}</p>
+          </div>
+        </div>
+      </section>
+
       <section class="vocab-drawer">
         <button class="vocab-toggle" type="button" @click="showVocabularyPanel = !showVocabularyPanel">
           <span>▰</span>
@@ -255,8 +275,6 @@ const messages = {
     placeBeside: "Place beside",
     translationOutput: "Translation output",
     readingDirection: "Reading direction",
-    layoutVertical: "Top / Bottom",
-    layoutHorizontal: "Left / Right",
     customModel: "Custom model",
     translating: "Translating",
     start: "Start translation",
@@ -266,14 +284,11 @@ const messages = {
     copy: "Copy",
     leftOutput: "Source language",
     rightOutput: "Translation language",
-    layout: "Layout",
     model: "Model",
     noWindowSelected: "Choose a visible game window",
     translator: "Translator",
     ocr: "OCR engine",
-    providerConfigs: "Service config",
     vocabulary: "Vocabulary collection",
-    fontSize: "Font size",
     fontFamily: "Font",
     textStyle: "Text style",
     layoutMode: "Layout mode",
@@ -302,6 +317,10 @@ const messages = {
     windowsLoaded: "Window list refreshed.",
     selectingArea: "Drag over the game subtitle area...",
     areaUpdated: "Capture area updated.",
+    refreshPreview: "Refresh preview",
+    previewing: "Capturing...",
+    noPreview: "No preview yet",
+    logs: "Run logs",
     placeHint: "Use the native window controls to place this beside the game.",
     versionLatest: "Current version is latest",
     titleWorking: "Translating..."
@@ -312,8 +331,6 @@ const messages = {
     placeBeside: "置于旁边",
     translationOutput: "翻译输出",
     readingDirection: "阅读方向",
-    layoutVertical: "上下布局",
-    layoutHorizontal: "左右布局",
     customModel: "自定义模型",
     translating: "翻译中",
     start: "开始翻译",
@@ -323,14 +340,11 @@ const messages = {
     copy: "复制",
     leftOutput: "原文语言",
     rightOutput: "翻译语言",
-    layout: "布局",
     model: "模型",
     noWindowSelected: "选择可见游戏窗口",
     translator: "翻译器",
     ocr: "OCR 引擎",
-    providerConfigs: "服务配置",
     vocabulary: "词汇收集",
-    fontSize: "字号",
     fontFamily: "字体",
     textStyle: "文字",
     layoutMode: "布局模式",
@@ -359,6 +373,10 @@ const messages = {
     windowsLoaded: "窗口列表已刷新。",
     selectingArea: "请在游戏字幕区域拖拽选区...",
     areaUpdated: "捕获区域已更新。",
+    refreshPreview: "刷新预览",
+    previewing: "截图中...",
+    noPreview: "暂无预览",
+    logs: "运行日志",
     placeHint: "请使用系统窗口功能将本窗口放到游戏旁边。",
     versionLatest: "当前版本最新",
     titleWorking: "正在翻译..."
@@ -376,6 +394,7 @@ const providerModels = {
 const showProviderPanel = ref(false);
 const showDisplayPanel = ref(false);
 const showVocabularyPanel = ref(false);
+const showLogPanel = ref(true);
 const windowTitle = ref("");
 const selectedWindowLabel = ref("");
 const windowOptions = ref([]);
@@ -401,15 +420,19 @@ const cropLeft = ref("0.05");
 const cropTop = ref("0.62");
 const cropRight = ref("0.95");
 const cropBottom = ref("0.95");
-const sourceText = ref("「——それでも、\n君と出会えたことは、\n俺にとって、奇跡だった。」");
-const translatedText = ref("「——即使如此，\n能够与你相遇，\n对我来说也是一种奇迹。」");
+const sourceText = ref("Select a game window, then click Start translation.");
+const translatedText = ref("");
+const previewImage = ref("");
+const isPreviewing = ref(false);
 const isTranslating = ref(false);
 const statusMessage = ref("");
 const titleDots = ref(0);
 const collectedCount = ref(0);
 const sourceTextarea = ref(null);
+const logEntries = ref([]);
 
 let titleTimer = null;
+let logId = 0;
 
 const ui = computed(() => messages[systemLanguage.value] || messages.en);
 const modelOptions = computed(() => providerModels[translator.value] || providerModels.deepseek);
@@ -442,6 +465,7 @@ onMounted(() => {
   titleTimer = window.setInterval(() => {
     titleDots.value = (titleDots.value + 1) % 3;
   }, 450);
+  addLog("info", "App mounted. Refreshing window list.");
   refreshWindows();
 });
 
@@ -450,6 +474,19 @@ onUnmounted(() => {
     window.clearInterval(titleTimer);
   }
 });
+
+function addLog(level, message) {
+  const now = new Date();
+  logEntries.value.unshift({
+    id: ++logId,
+    level,
+    time: now.toLocaleTimeString(),
+    message
+  });
+  if (logEntries.value.length > 80) {
+    logEntries.value.length = 80;
+  }
+}
 
 function safeApiKey() {
   return apiKey.value.trim();
@@ -468,8 +505,18 @@ function floatValue(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function cropRequest() {
+  return {
+    left: floatValue(cropLeft.value, 0.05),
+    top: floatValue(cropTop.value, 0.62),
+    right: floatValue(cropRight.value, 0.95),
+    bottom: floatValue(cropBottom.value, 0.95)
+  };
+}
+
 function togglePlaceHint() {
   statusMessage.value = ui.value.placeHint;
+  addLog("info", ui.value.placeHint);
 }
 
 function increaseFont() {
@@ -498,7 +545,9 @@ async function withBusy(message, action) {
   try {
     await action();
   } catch (error) {
-    statusMessage.value = String(error || "Operation failed");
+    const detail = String(error || "Operation failed");
+    statusMessage.value = detail;
+    addLog("error", detail);
   } finally {
     isTranslating.value = false;
   }
@@ -506,12 +555,16 @@ async function withBusy(message, action) {
 
 async function refreshWindows() {
   statusMessage.value = ui.value.refreshing;
+  addLog("info", "Requesting visible window list.");
   try {
     const response = await invoke("list_windows_command");
     windowOptions.value = response.windows || [];
     statusMessage.value = ui.value.windowsLoaded;
+    addLog("info", `Window list refreshed: ${windowOptions.value.length} windows found.`);
   } catch (error) {
-    statusMessage.value = String(error || "Failed to refresh windows");
+    const detail = String(error || "Failed to refresh windows");
+    statusMessage.value = detail;
+    addLog("error", detail);
   }
 }
 
@@ -519,29 +572,63 @@ function applySelectedWindow() {
   const selected = windowOptions.value.find((item) => item.label === selectedWindowLabel.value);
   if (selected) {
     windowTitle.value = selected.title;
+    addLog("info", `Selected window: ${selected.label}`);
+    refreshCapturePreview();
+  }
+}
+
+async function refreshCapturePreview() {
+  if (!windowTitle.value.trim()) {
+    addLog("warn", "Preview skipped: no game window selected.");
+    return;
+  }
+
+  isPreviewing.value = true;
+  const crop = cropRequest();
+  addLog("info", `Capturing preview: ${JSON.stringify(crop)}`);
+  try {
+    const response = await invoke("preview_area_command", {
+      request: {
+        windowTitle: windowTitle.value.trim(),
+        ...crop
+      }
+    });
+    previewImage.value = response.data_url || "";
+    addLog("info", `Preview captured: ${response.width}x${response.height}.`);
+  } catch (error) {
+    addLog("error", `Preview failed: ${String(error || "unknown error")}`);
+  } finally {
+    isPreviewing.value = false;
   }
 }
 
 async function startOcrTranslation() {
   if (!windowTitle.value.trim()) {
     statusMessage.value = ui.value.noWindow;
+    addLog("warn", "Start blocked: no game window selected.");
     return;
   }
 
+  const crop = cropRequest();
+  addLog("info", `Start OCR translation. window="${windowTitle.value}", ocr=${ocrEngine.value}, translator=${translator.value}, target=${targetLanguage()}, crop=${JSON.stringify(crop)}`);
+  await refreshCapturePreview();
+
   await withBusy(ui.value.titleWorking, async () => {
+    addLog("info", "Invoking backend OCR translation command.");
     const response = await invoke("ocr_translate_command", {
       request: {
         ...baseRequest(),
         windowTitle: windowTitle.value.trim(),
         ocrEngine: ocrEngine.value,
-        left: floatValue(cropLeft.value, 0.05),
-        top: floatValue(cropTop.value, 0.62),
-        right: floatValue(cropRight.value, 0.95),
-        bottom: floatValue(cropBottom.value, 0.95)
+        ...crop
       }
     });
     sourceText.value = response.source || sourceText.value;
     translatedText.value = response.translation || "";
+    addLog("info", `OCR translation finished. sourceLength=${(response.source || "").length}, translationLength=${(response.translation || "").length}`);
+    if (!response.source) {
+      addLog("warn", "OCR returned empty source text. Check selected area preview and OCR engine.");
+    }
     statusMessage.value = ui.value.ready;
   });
 }
@@ -549,10 +636,12 @@ async function startOcrTranslation() {
 async function selectCaptureArea() {
   if (!windowTitle.value.trim()) {
     statusMessage.value = ui.value.noWindow;
+    addLog("warn", "Area selection blocked: no game window selected.");
     return;
   }
 
   statusMessage.value = ui.value.selectingArea;
+  addLog("info", "Opening draggable capture-area selector.");
   try {
     const response = await invoke("select_area_command", {
       request: {
@@ -561,6 +650,7 @@ async function selectCaptureArea() {
     });
     if (response.cancelled) {
       statusMessage.value = ui.value.stopped;
+      addLog("warn", "Area selection cancelled.");
       return;
     }
     cropLeft.value = String(response.left);
@@ -568,8 +658,12 @@ async function selectCaptureArea() {
     cropRight.value = String(response.right);
     cropBottom.value = String(response.bottom);
     statusMessage.value = ui.value.areaUpdated;
+    addLog("info", `Capture area updated: ${JSON.stringify(response)}`);
+    refreshCapturePreview();
   } catch (error) {
-    statusMessage.value = String(error || "Failed to select area");
+    const detail = String(error || "Failed to select area");
+    statusMessage.value = detail;
+    addLog("error", detail);
   }
 }
 
@@ -577,9 +671,11 @@ async function runTextTranslation() {
   const text = sourceText.value.trim();
   if (!text) {
     statusMessage.value = ui.value.noSource;
+    addLog("warn", "Manual translation blocked: no source text.");
     return;
   }
 
+  addLog("info", `Manual translation started. sourceLength=${text.length}, translator=${translator.value}, target=${targetLanguage()}`);
   await withBusy(ui.value.titleWorking, async () => {
     const response = await invoke("translate_text_command", {
       request: {
@@ -589,6 +685,7 @@ async function runTextTranslation() {
     });
     sourceText.value = response.source || text;
     translatedText.value = response.translation || "";
+    addLog("info", `Manual translation finished. translationLength=${(response.translation || "").length}`);
     statusMessage.value = ui.value.ready;
   });
 }
@@ -596,14 +693,17 @@ async function runTextTranslation() {
 function stopTranslation() {
   isTranslating.value = false;
   statusMessage.value = ui.value.stopped;
+  addLog("warn", "Stop requested.");
 }
 
 async function copyTranslation() {
   try {
     await navigator.clipboard.writeText(translatedText.value || "");
     statusMessage.value = ui.value.copied;
+    addLog("info", "Translation copied to clipboard.");
   } catch {
     statusMessage.value = translatedText.value || "";
+    addLog("error", "Clipboard write failed.");
   }
 }
 
@@ -614,6 +714,7 @@ async function collectSelection() {
     : "";
   if (!selected) {
     statusMessage.value = ui.value.noSelection;
+    addLog("warn", "Collect selection blocked: no selected source text.");
     return;
   }
   await collectEntry(selected, "");
@@ -623,6 +724,7 @@ async function collectCurrent() {
   const source = sourceText.value.trim();
   if (!source) {
     statusMessage.value = ui.value.noSource;
+    addLog("warn", "Collect current blocked: no source text.");
     return;
   }
   await collectEntry(source, translatedText.value.trim());
@@ -644,8 +746,11 @@ async function collectEntry(source, translation) {
     });
     collectedCount.value += 1;
     statusMessage.value = ui.value.collected;
+    addLog("info", `Vocabulary collected. total=${collectedCount.value}`);
   } catch (error) {
-    statusMessage.value = String(error || "Failed to collect vocabulary");
+    const detail = String(error || "Failed to collect vocabulary");
+    statusMessage.value = detail;
+    addLog("error", detail);
   }
 }
 </script>

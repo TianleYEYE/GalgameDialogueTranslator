@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import sys
 import tkinter as tk
@@ -53,6 +55,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     select_area_parser = subparsers.add_parser("select-area")
     select_area_parser.add_argument("--window-title", default="")
 
+    preview_parser = subparsers.add_parser("preview-area")
+    preview_parser.add_argument("--window-title", default="")
+    preview_parser.add_argument("--left", type=float, default=0.05)
+    preview_parser.add_argument("--top", type=float, default=0.62)
+    preview_parser.add_argument("--right", type=float, default=0.95)
+    preview_parser.add_argument("--bottom", type=float, default=0.95)
+
     collect_parser = subparsers.add_parser("collect")
     collect_parser.add_argument("--source", required=True)
     collect_parser.add_argument("--translation", default="")
@@ -63,7 +72,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     collect_parser.add_argument("--note", default="")
     collect_parser.add_argument("--tags", default="")
 
-    if argv and argv[0] not in {"translate", "ocr-translate", "list-windows", "select-area", "collect"}:
+    if argv and argv[0] not in {"translate", "ocr-translate", "list-windows", "select-area", "preview-area", "collect"}:
         argv = ["translate", *argv]
     return parser.parse_args(argv)
 
@@ -132,6 +141,36 @@ def capture_ocr_text(args: argparse.Namespace) -> str:
     return normalize_ocr_text(pytesseract.image_to_string(prepared, lang="eng", config="--psm 6"))
 
 
+def capture_region_image(args: argparse.Namespace) -> dict[str, object]:
+    window = find_window(args.window_title)
+    if window is None:
+        raise RuntimeError("Window not found")
+
+    left, top, right, bottom = window.rect
+    width = right - left
+    height = bottom - top
+    monitor = {
+        "left": left + int(width * args.left),
+        "top": top + int(height * args.top),
+        "width": max(int(width * (args.right - args.left)), 20),
+        "height": max(int(height * (args.bottom - args.top)), 20),
+    }
+    with mss.mss() as capture:
+        grabbed = capture.grab(monitor)
+
+    from PIL import Image
+
+    image = Image.frombytes("RGB", grabbed.size, grabbed.rgb)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return {
+        "data_url": f"data:image/png;base64,{encoded}",
+        "width": image.width,
+        "height": image.height,
+    }
+
+
 def print_json(payload: dict[str, object]) -> None:
     body = json.dumps(payload, ensure_ascii=False)
     try:
@@ -188,6 +227,10 @@ def main(argv: list[str]) -> int:
 
     if command == "select-area":
         print_json(select_area(args.window_title))
+        return 0
+
+    if command == "preview-area":
+        print_json(capture_region_image(args))
         return 0
 
     if command == "collect":
