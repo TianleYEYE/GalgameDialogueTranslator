@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use tauri::{AppHandle, Manager};
 
@@ -80,20 +80,35 @@ struct BasicOkResponse {
 }
 
 fn bridge_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let local_script = Path::new("translator_cli.py");
-    if local_script.exists() {
-        return std::env::current_dir().map_err(|error| format!("Failed to read current directory: {error}"));
+    let mut candidates = Vec::new();
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        candidates.push(current_dir.clone());
+        candidates.push(current_dir.join("_up_"));
     }
 
-    let resource_dir = app
-        .path()
-        .resource_dir()
-        .map_err(|error| format!("Failed to locate bundled resources: {error}"))?;
-    if resource_dir.join("translator_cli.py").exists() {
-        return Ok(resource_dir);
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        candidates.push(resource_dir.clone());
+        candidates.push(resource_dir.join("_up_"));
+        if let Some(parent) = resource_dir.parent() {
+            candidates.push(parent.join("_up_"));
+        }
     }
 
-    Err("translator_cli.py was not found in the working directory or bundled resources.".to_string())
+    for candidate in &candidates {
+        if candidate.join("translator_cli.py").exists() {
+            return Ok(candidate.clone());
+        }
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|path| path.join("translator_cli.py").display().to_string())
+        .collect::<Vec<_>>()
+        .join("; ");
+    Err(format!(
+        "translator_cli.py was not found in the working directory or bundled resources. Checked: {checked}"
+    ))
 }
 
 fn python_command(app: &AppHandle) -> Result<Command, String> {
