@@ -1,5 +1,6 @@
 import argparse
 import base64
+import ctypes
 import datetime as dt
 import io
 import json
@@ -23,6 +24,21 @@ import pytesseract
 import win32con
 import win32gui
 from PIL import Image, ImageOps
+from PIL import ImageTk
+
+
+def enable_dpi_awareness() -> None:
+    """Keep Win32 window coordinates aligned with physical screenshot pixels."""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
+enable_dpi_awareness()
 
 
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -345,7 +361,28 @@ def local_config_path() -> str:
 
 
 def vocabulary_path() -> str:
+    configured_path = os.environ.get("GDT_VOCABULARY_PATH", "").strip()
+    if configured_path:
+        return configured_path
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), VOCABULARY_FILENAME)
+
+
+def legacy_vocabulary_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), VOCABULARY_FILENAME)
+
+
+def ensure_vocabulary_file() -> str:
+    path = vocabulary_path()
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    legacy_path = legacy_vocabulary_path()
+    if path != legacy_path and not os.path.exists(path) and os.path.exists(legacy_path):
+        try:
+            shutil.copyfile(legacy_path, path)
+        except Exception:
+            pass
+    return path
 
 
 def detect_system_language() -> str:
@@ -478,10 +515,46 @@ class WindowInfo:
     rect: tuple[int, int, int, int]
 
 
+def window_capture_rect(hwnd: int) -> tuple[int, int, int, int]:
+    """Return the visible client area used for selection, preview and OCR."""
+    try:
+        client_left, client_top, client_right, client_bottom = win32gui.GetClientRect(hwnd)
+        screen_left, screen_top = win32gui.ClientToScreen(hwnd, (client_left, client_top))
+        screen_right, screen_bottom = win32gui.ClientToScreen(hwnd, (client_right, client_bottom))
+        if screen_right - screen_left >= 20 and screen_bottom - screen_top >= 20:
+            return screen_left, screen_top, screen_right, screen_bottom
+    except Exception:
+        pass
+    return win32gui.GetWindowRect(hwnd)
+
+
 def find_window(title_part: str) -> WindowInfo | None:
     needle = title_part.casefold().strip()
     for window in list_capture_windows():
         if not needle or needle in window.title.casefold():
+            return window
+    return None
+
+
+def find_window_by_reference(title_part: str = "", hwnd: int | None = None) -> WindowInfo | None:
+    windows = list_capture_windows()
+    if hwnd:
+        for window in windows:
+            if window.hwnd == hwnd:
+                return window
+
+    needle = title_part.casefold().strip()
+    if not needle:
+        return windows[0] if windows else None
+
+    for window in windows:
+        if needle in window.title.casefold() or window.title.casefold() in needle:
+            return window
+
+    normalized_needle = re.sub(r"\s+", " ", needle)
+    for window in windows:
+        normalized_title = re.sub(r"\s+", " ", window.title.casefold())
+        if normalized_needle in normalized_title or normalized_title in normalized_needle:
             return window
     return None
 
@@ -496,7 +569,7 @@ def list_capture_windows() -> list[WindowInfo]:
         title = win32gui.GetWindowText(hwnd).strip()
         if not title or title in blocked_titles:
             return True
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        left, top, right, bottom = window_capture_rect(hwnd)
         if right - left >= 240 and bottom - top >= 160:
             windows.append(WindowInfo(hwnd, title, (left, top, right, bottom)))
         return True
@@ -509,27 +582,48 @@ def clamp_ratio(value: float) -> float:
     return min(max(value, 0.0), 1.0)
 
 
+def capture_window_image(window: WindowInfo) -> Image.Image:
+    left, top, right, bottom = window_capture_rect(window.hwnd)
+    monitor = {
+        "left": left,
+        "top": top,
+        "width": max(right - left, 20),
+        "height": max(bottom - top, 20),
+    }
+    with mss.mss() as capture:
+        grabbed = capture.grab(monitor)
+    return Image.frombytes("RGB", grabbed.size, grabbed.rgb)
+
+
 def select_region_for_window(
     root: tk.Tk,
     window: WindowInfo,
     on_selected: Callable[[tuple[float, float, float, float]], None],
     on_cancelled: Callable[[], None],
 ) -> None:
-    left, top, right, bottom = window.rect
-    width = max(right - left, 1)
-    height = max(bottom - top, 1)
+    screenshot = capture_window_image(window)
+    image_width = max(screenshot.width, 1)
+    image_height = max(screenshot.height, 1)
+    max_width = max(root.winfo_screenwidth() - 120, 480)
+    max_height = max(root.winfo_screenheight() - 160, 320)
+    scale = min(max_width / image_width, max_height / image_height, 1.0)
+    width = max(int(image_width * scale), 1)
+    height = max(int(image_height * scale), 1)
+    display_image = screenshot.resize((width, height), Image.Resampling.LANCZOS) if scale < 1 else screenshot
+    photo = ImageTk.PhotoImage(display_image)
 
     selector = tk.Toplevel(root)
-    selector.overrideredirect(True)
     selector.attributes("-topmost", True)
-    selector.attributes("-alpha", 0.35)
-    selector.configure(bg="black")
-    selector.geometry(f"{width}x{height}+{left}+{top}")
+    selector.title("Select subtitle area")
+    selector.configure(bg="#111111")
+    selector.geometry(f"{width}x{height}")
     selector.focus_force()
     selector.grab_set()
 
-    canvas = tk.Canvas(selector, cursor="crosshair", bg="black", highlightthickness=0)
+    canvas = tk.Canvas(selector, cursor="crosshair", bg="black", highlightthickness=0, width=width, height=height)
     canvas.pack(fill="both", expand=True)
+    canvas.create_image(0, 0, anchor="nw", image=photo)
+    canvas.image = photo
     canvas.create_text(
         width // 2,
         28,
@@ -610,10 +704,15 @@ def normalize_ocr_text(text: str) -> str:
     for raw_line in text.splitlines():
         line = re.sub(r"\s+", " ", raw_line).strip()
         line = line.strip("|[]{}~`")
+        line = re.sub(r"^[A-Za-z]\s*[_=~`|\\/\-]+\s*", "", line)
+        line = re.sub(r"\s+[=_~`|\\/-]+\s*[A-Za-z0-9]{0,4}\.?$", "", line)
+        line = re.sub(r"\b(Skip|Auto|Backward|Forward|Close)\b.*$", "", line, flags=re.I).strip()
         if line:
             lines.append(line)
     text = " ".join(lines)
+    text = re.sub(r"^[A-Za-z]\s+(?=[A-Z])", "", text)
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
+    text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
 
@@ -1068,13 +1167,13 @@ def save_local_settings(settings: dict[str, object]) -> None:
 
 
 def append_vocabulary_entry(entry: dict[str, object]) -> None:
-    path = vocabulary_path()
+    path = ensure_vocabulary_file()
     with open(path, "a", encoding="utf-8") as file:
         file.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def load_vocabulary_entries() -> list[dict[str, object]]:
-    path = vocabulary_path()
+    path = ensure_vocabulary_file()
     if not os.path.exists(path):
         return []
     entries: list[dict[str, object]] = []
@@ -2158,23 +2257,14 @@ class TranslatorApp:
                 time.sleep(max(self.interval_var.get(), 500) / 1000)
 
     def _capture_subtitle_area(self, capture: mss.mss, window: WindowInfo) -> Image.Image:
-        left, top, right, bottom = window.rect
-        width = right - left
-        height = bottom - top
-
-        crop_left = left + int(width * self.left_var.get())
-        crop_top = top + int(height * self.top_var.get())
-        crop_right = left + int(width * self.right_var.get())
-        crop_bottom = top + int(height * self.bottom_var.get())
-
-        monitor = {
-            "left": crop_left,
-            "top": crop_top,
-            "width": max(crop_right - crop_left, 20),
-            "height": max(crop_bottom - crop_top, 20),
-        }
-        grabbed = capture.grab(monitor)
-        return Image.frombytes("RGB", grabbed.size, grabbed.rgb)
+        screenshot = capture_window_image(window)
+        width = screenshot.width
+        height = screenshot.height
+        crop_left = max(min(int(width * self.left_var.get()), width - 1), 0)
+        crop_top = max(min(int(height * self.top_var.get()), height - 1), 0)
+        crop_right = max(min(int(width * self.right_var.get()), width), crop_left + 1)
+        crop_bottom = max(min(int(height * self.bottom_var.get()), height), crop_top + 1)
+        return screenshot.crop((crop_left, crop_top, crop_right, crop_bottom))
 
     def _ocr(self, image: Image.Image) -> str:
         prepared = preprocess_for_ocr(image)

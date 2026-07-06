@@ -146,7 +146,6 @@
           <div class="crop-preview">
             <img v-if="previewImage" :src="previewImage" alt="Selected subtitle area preview" />
             <div v-else class="preview-placeholder">{{ ui.noPreview }}</div>
-            <div class="crop-box"></div>
           </div>
           <div class="crop-values">
             <input v-model="cropLeft" />
@@ -277,7 +276,7 @@ const messages = {
     readingDirection: "Reading direction",
     customModel: "Custom model",
     translating: "Translating",
-    start: "Start translation",
+    start: "Start auto translate",
     retranslate: "Retranslate",
     stop: "Stop",
     collect: "Collect",
@@ -313,6 +312,9 @@ const messages = {
     collected: "Collected to vocabulary.",
     copied: "Copied.",
     stopped: "Stopped",
+    watching: "Watching subtitle area...",
+    noNewText: "No new subtitle text.",
+    gameWindowClosed: "Game window closed. Auto translation stopped.",
     refreshing: "Refreshing windows...",
     windowsLoaded: "Window list refreshed.",
     selectingArea: "Drag over the game subtitle area...",
@@ -321,6 +323,8 @@ const messages = {
     previewing: "Capturing...",
     noPreview: "No preview yet",
     logs: "Run logs",
+    settingsLoaded: "Local settings loaded.",
+    settingsSaved: "Local settings saved.",
     placeHint: "Use the native window controls to place this beside the game.",
     versionLatest: "Current version is latest",
     titleWorking: "Translating..."
@@ -333,7 +337,7 @@ const messages = {
     readingDirection: "阅读方向",
     customModel: "自定义模型",
     translating: "翻译中",
-    start: "开始翻译",
+    start: "开始自动翻译",
     retranslate: "重新翻译",
     stop: "停止",
     collect: "收集",
@@ -369,6 +373,9 @@ const messages = {
     collected: "已收藏到词汇本。",
     copied: "已复制。",
     stopped: "已停止",
+    watching: "正在监听字幕区域...",
+    noNewText: "暂无新字幕。",
+    gameWindowClosed: "游戏窗口已关闭，已自动停止翻译。",
     refreshing: "正在刷新窗口...",
     windowsLoaded: "窗口列表已刷新。",
     selectingArea: "请在游戏字幕区域拖拽选区...",
@@ -377,6 +384,8 @@ const messages = {
     previewing: "截图中...",
     noPreview: "暂无预览",
     logs: "运行日志",
+    settingsLoaded: "已加载本地配置。",
+    settingsSaved: "已保存本地配置。",
     placeHint: "请使用系统窗口功能将本窗口放到游戏旁边。",
     versionLatest: "当前版本最新",
     titleWorking: "正在翻译..."
@@ -396,6 +405,7 @@ const showDisplayPanel = ref(false);
 const showVocabularyPanel = ref(false);
 const showLogPanel = ref(true);
 const windowTitle = ref("");
+const selectedWindowHwnd = ref(0);
 const selectedWindowLabel = ref("");
 const windowOptions = ref([]);
 const leftOutput = ref("English");
@@ -433,6 +443,14 @@ const logEntries = ref([]);
 
 let titleTimer = null;
 let logId = 0;
+let settingsSaveTimer = null;
+let settingsReady = false;
+let applyingSettings = false;
+let autoTranslateToken = 0;
+let autoTranslateTimer = null;
+let lastAutoSourceText = "";
+let pendingOcrText = "";
+let pendingOcrCount = 0;
 
 const ui = computed(() => messages[systemLanguage.value] || messages.en);
 const modelOptions = computed(() => providerModels[translator.value] || providerModels.deepseek);
@@ -444,10 +462,19 @@ const panelFontStyle = computed(() => ({
 }));
 
 watch(isTranslating, (active) => {
-  document.title = active ? `(${ui.value.titleWorking}) Game Dialogue Translator` : "Game Dialogue Translator";
+  document.title = active ? `(${titleHint.value}) Game Dialogue Translator` : "Game Dialogue Translator";
+});
+
+watch(titleDots, () => {
+  if (isTranslating.value) {
+    document.title = `(${titleHint.value}) Game Dialogue Translator`;
+  }
 });
 
 watch(translator, (provider) => {
+  if (applyingSettings) {
+    return;
+  }
   const options = providerModels[provider] || providerModels.deepseek;
   if (!options.includes(model.value) && model.value !== "__custom__") {
     model.value = options[0];
@@ -461,18 +488,52 @@ watch(translator, (provider) => {
   }
 });
 
+watch(
+  [
+    windowTitle,
+    selectedWindowHwnd,
+    selectedWindowLabel,
+    leftOutput,
+    rightOutput,
+    layout,
+    model,
+    customModel,
+    translator,
+    ocrEngine,
+    fontSize,
+    fontFamily,
+    systemLanguage,
+    lockCurrentLine,
+    intervalMs,
+    contextLines,
+    stableReads,
+    apiUrl,
+    apiKey,
+    libreUrl,
+    libreTarget,
+    cropLeft,
+    cropTop,
+    cropRight,
+    cropBottom
+  ],
+  scheduleSettingsSave
+);
+
 onMounted(() => {
   titleTimer = window.setInterval(() => {
     titleDots.value = (titleDots.value + 1) % 3;
   }, 450);
-  addLog("info", "App mounted. Refreshing window list.");
-  refreshWindows();
+  bootApp();
 });
 
 onUnmounted(() => {
   if (titleTimer) {
     window.clearInterval(titleTimer);
   }
+  if (settingsSaveTimer) {
+    window.clearTimeout(settingsSaveTimer);
+  }
+  stopAutoTranslateLoop();
 });
 
 function addLog(level, message) {
@@ -490,6 +551,125 @@ function addLog(level, message) {
 
 function safeApiKey() {
   return apiKey.value.trim();
+}
+
+function settingsSnapshot() {
+  return {
+    windowTitle: windowTitle.value,
+    selectedWindowHwnd: selectedWindowHwnd.value,
+    selectedWindowLabel: selectedWindowLabel.value,
+    leftOutput: leftOutput.value,
+    rightOutput: rightOutput.value,
+    layout: layout.value,
+    model: model.value,
+    customModel: customModel.value,
+    translator: translator.value,
+    ocrEngine: ocrEngine.value,
+    fontSize: fontSize.value,
+    fontFamily: fontFamily.value,
+    systemLanguage: systemLanguage.value,
+    lockCurrentLine: lockCurrentLine.value,
+    intervalMs: intervalMs.value,
+    contextLines: contextLines.value,
+    stableReads: stableReads.value,
+    apiUrl: apiUrl.value,
+    apiKey: apiKey.value,
+    libreUrl: libreUrl.value,
+    libreTarget: libreTarget.value,
+    cropLeft: cropLeft.value,
+    cropTop: cropTop.value,
+    cropRight: cropRight.value,
+    cropBottom: cropBottom.value
+  };
+}
+
+function applySettings(settings) {
+  if (!settings || typeof settings !== "object") {
+    return;
+  }
+  applyingSettings = true;
+  const assignString = (key, target) => {
+    if (typeof settings[key] === "string") {
+      target.value = settings[key];
+    }
+  };
+  assignString("windowTitle", windowTitle);
+  assignString("selectedWindowLabel", selectedWindowLabel);
+  if (Number.isFinite(Number(settings.selectedWindowHwnd))) {
+    selectedWindowHwnd.value = Number(settings.selectedWindowHwnd);
+  }
+  assignString("leftOutput", leftOutput);
+  assignString("rightOutput", rightOutput);
+  assignString("layout", layout);
+  assignString("model", model);
+  assignString("customModel", customModel);
+  assignString("translator", translator);
+  assignString("ocrEngine", ocrEngine);
+  assignString("fontSize", fontSize);
+  assignString("fontFamily", fontFamily);
+  assignString("systemLanguage", systemLanguage);
+  assignString("intervalMs", intervalMs);
+  assignString("contextLines", contextLines);
+  assignString("stableReads", stableReads);
+  assignString("apiUrl", apiUrl);
+  assignString("apiKey", apiKey);
+  assignString("libreUrl", libreUrl);
+  assignString("libreTarget", libreTarget);
+  assignString("cropLeft", cropLeft);
+  assignString("cropTop", cropTop);
+  assignString("cropRight", cropRight);
+  assignString("cropBottom", cropBottom);
+  if (typeof settings.lockCurrentLine === "boolean") {
+    lockCurrentLine.value = settings.lockCurrentLine;
+  }
+  window.setTimeout(() => {
+    applyingSettings = false;
+  }, 0);
+}
+
+async function bootApp() {
+  addLog("info", "App mounted. Loading local settings.");
+  try {
+    const response = await invoke("load_settings_command");
+    applySettings(response.settings || {});
+    addLog("info", `${ui.value.settingsLoaded} path=${response.path || "unknown"}, apiKeyConfigured=${safeApiKey() ? "yes" : "no"}`);
+  } catch (error) {
+    addLog("warn", `Local settings could not be loaded: ${String(error || "unknown error")}`);
+  } finally {
+    settingsReady = true;
+  }
+  await refreshWindows();
+  await refreshVocabularyCount();
+  if (windowTitle.value.trim()) {
+    refreshCapturePreview();
+  }
+}
+
+async function saveSettingsNow() {
+  if (!settingsReady) {
+    return;
+  }
+  try {
+    await invoke("save_settings_command", {
+      request: {
+        settings: settingsSnapshot()
+      }
+    });
+  } catch (error) {
+    addLog("warn", `Local settings could not be saved: ${String(error || "unknown error")}`);
+  }
+}
+
+function scheduleSettingsSave() {
+  if (!settingsReady) {
+    return;
+  }
+  if (settingsSaveTimer) {
+    window.clearTimeout(settingsSaveTimer);
+  }
+  settingsSaveTimer = window.setTimeout(() => {
+    saveSettingsNow();
+  }, 500);
 }
 
 function activeModel() {
@@ -528,6 +708,9 @@ function decreaseFont() {
 }
 
 function baseRequest() {
+  if (translator.value !== "libretranslate" && translator.value !== "argos" && !safeApiKey()) {
+    addLog("warn", `API key is empty for ${translator.value}. Configure it once; it will be saved locally.`);
+  }
   return {
     translator: translator.value,
     targetLanguage: targetLanguage(),
@@ -553,12 +736,168 @@ async function withBusy(message, action) {
   }
 }
 
+function intervalDelay() {
+  const parsed = Number.parseInt(intervalMs.value, 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, 500) : 1500;
+}
+
+function stableReadCount() {
+  const parsed = Number.parseInt(stableReads.value, 10);
+  return Number.isFinite(parsed) ? Math.max(parsed, 1) : 3;
+}
+
+function canonicalOcrText(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ocrTextsAreSimilar(left, right) {
+  const a = canonicalOcrText(left);
+  const b = canonicalOcrText(right);
+  if (!a || !b) {
+    return false;
+  }
+  if (a.includes(b) || b.includes(a)) {
+    const shorter = Math.min(a.length, b.length);
+    const longer = Math.max(a.length, b.length);
+    return shorter >= 10 && shorter / longer >= 0.55;
+  }
+  const maxLength = Math.max(a.length, b.length);
+  let same = 0;
+  for (let index = 0; index < Math.min(a.length, b.length); index += 1) {
+    if (a[index] === b[index]) {
+      same += 1;
+    }
+  }
+  return same / maxLength >= 0.78;
+}
+
+function ocrQualityScore(text) {
+  const words = (text.match(/[A-Za-z]{2,}/g) || []).length;
+  const letters = (text.match(/[A-Za-z]/g) || []).length;
+  const noise = (text.match(/[^A-Za-z0-9\s,.!?;:'"-]/g) || []).length;
+  return words * 100 + letters - noise * 4 - Math.floor(text.length / 8);
+}
+
+function resetOcrStability() {
+  pendingOcrText = "";
+  pendingOcrCount = 0;
+}
+
+function acceptStableOcrText(text) {
+  if (text === pendingOcrText || ocrTextsAreSimilar(text, pendingOcrText)) {
+    pendingOcrCount += 1;
+    if (ocrQualityScore(text) > ocrQualityScore(pendingOcrText)) {
+      pendingOcrText = text;
+    }
+  } else {
+    pendingOcrText = text;
+    pendingOcrCount = 1;
+  }
+  return pendingOcrCount >= stableReadCount() ? pendingOcrText : "";
+}
+
+function stopAutoTranslateLoop() {
+  autoTranslateToken += 1;
+  if (autoTranslateTimer) {
+    window.clearTimeout(autoTranslateTimer);
+    autoTranslateTimer = null;
+  }
+}
+
+function isWindowMissingError(error) {
+  return String(error || "").toLowerCase().includes("window not found");
+}
+
+async function stopBecauseGameWindowClosed(error) {
+  stopAutoTranslateLoop();
+  isTranslating.value = false;
+  resetOcrStability();
+  statusMessage.value = ui.value.gameWindowClosed;
+  selectedWindowHwnd.value = 0;
+  selectedWindowLabel.value = "";
+  addLog("warn", `${ui.value.gameWindowClosed} ${String(error || "").split("\n").at(-1) || ""}`.trim());
+  await refreshWindows();
+}
+
+function scheduleNextAutoTranslate(token) {
+  if (!isTranslating.value || token !== autoTranslateToken) {
+    return;
+  }
+  autoTranslateTimer = window.setTimeout(() => {
+    runAutoTranslateTick(token);
+  }, intervalDelay());
+}
+
+async function runAutoTranslateTick(token) {
+  if (!isTranslating.value || token !== autoTranslateToken) {
+    return;
+  }
+
+  const crop = cropRequest();
+  try {
+    const ocrResponse = await invoke("ocr_text_command", {
+      request: {
+        windowTitle: windowTitle.value.trim(),
+        hwnd: selectedWindowHwnd.value,
+        ocrEngine: ocrEngine.value,
+        model: activeModel(),
+        apiUrl: apiUrl.value,
+        apiKey: safeApiKey(),
+        ...crop
+      }
+    });
+    if (!isTranslating.value || token !== autoTranslateToken) {
+      return;
+    }
+
+    const nextSource = (ocrResponse.source || "").trim();
+    if (!nextSource) {
+      resetOcrStability();
+      statusMessage.value = "OCR returned empty text. Check preview area or OCR engine.";
+      addLog("warn", "Auto tick: OCR returned empty source text.");
+    } else if (ocrTextsAreSimilar(nextSource, lastAutoSourceText)) {
+      statusMessage.value = ui.value.noNewText;
+      addLog("info", "Auto tick: same subtitle text, waiting.");
+    } else {
+      const stableSource = acceptStableOcrText(nextSource);
+      if (!stableSource) {
+        statusMessage.value = `Waiting for stable OCR (${pendingOcrCount}/${stableReadCount()}).`;
+        addLog("info", `Auto tick: waiting for stable OCR (${pendingOcrCount}/${stableReadCount()}).`);
+        return;
+      }
+      const translateResponse = await invoke("translate_text_command", {
+        request: {
+          ...baseRequest(),
+          text: stableSource
+        }
+      });
+      lastAutoSourceText = stableSource;
+      sourceText.value = stableSource;
+      const nextTranslation = translateResponse.translation || "";
+      translatedText.value = nextTranslation;
+      statusMessage.value = nextTranslation ? ui.value.watching : "Translation returned empty text. Check API key/model/provider settings.";
+      addLog("info", `Auto tick translated. sourceLength=${stableSource.length}, translationLength=${nextTranslation.length}`);
+    }
+  } catch (error) {
+    if (isWindowMissingError(error)) {
+      await stopBecauseGameWindowClosed(error);
+      return;
+    }
+    const detail = String(error || "Auto translation failed");
+    statusMessage.value = detail;
+    addLog("error", `Auto tick failed: ${detail}`);
+  } finally {
+    scheduleNextAutoTranslate(token);
+  }
+}
+
 async function refreshWindows() {
   statusMessage.value = ui.value.refreshing;
   addLog("info", "Requesting visible window list.");
   try {
     const response = await invoke("list_windows_command");
     windowOptions.value = response.windows || [];
+    restoreSelectedWindow();
     statusMessage.value = ui.value.windowsLoaded;
     addLog("info", `Window list refreshed: ${windowOptions.value.length} windows found.`);
   } catch (error) {
@@ -572,8 +911,27 @@ function applySelectedWindow() {
   const selected = windowOptions.value.find((item) => item.label === selectedWindowLabel.value);
   if (selected) {
     windowTitle.value = selected.title;
+    selectedWindowHwnd.value = Number(selected.hwnd) || 0;
     addLog("info", `Selected window: ${selected.label}`);
     refreshCapturePreview();
+  }
+}
+
+function restoreSelectedWindow() {
+  if (!windowOptions.value.length) {
+    return;
+  }
+  const savedHwnd = Number(selectedWindowHwnd.value) || 0;
+  const savedTitle = windowTitle.value.trim().toLowerCase();
+  const matched =
+    windowOptions.value.find((item) => Number(item.hwnd) === savedHwnd) ||
+    windowOptions.value.find((item) => savedTitle && item.title.toLowerCase().includes(savedTitle)) ||
+    windowOptions.value.find((item) => savedTitle && savedTitle.includes(item.title.toLowerCase()));
+  if (matched) {
+    selectedWindowLabel.value = matched.label;
+    windowTitle.value = matched.title;
+    selectedWindowHwnd.value = Number(matched.hwnd) || 0;
+    addLog("info", `Restored window selection: ${matched.label}`);
   }
 }
 
@@ -590,11 +948,12 @@ async function refreshCapturePreview() {
     const response = await invoke("preview_area_command", {
       request: {
         windowTitle: windowTitle.value.trim(),
+        hwnd: selectedWindowHwnd.value,
         ...crop
       }
     });
     previewImage.value = response.data_url || "";
-    addLog("info", `Preview captured: ${response.width}x${response.height}.`);
+    addLog("info", `Preview captured: ${response.width}x${response.height} from window ${response.window_width || "?"}x${response.window_height || "?"}.`);
   } catch (error) {
     addLog("error", `Preview failed: ${String(error || "unknown error")}`);
   } finally {
@@ -610,27 +969,15 @@ async function startOcrTranslation() {
   }
 
   const crop = cropRequest();
-  addLog("info", `Start OCR translation. window="${windowTitle.value}", ocr=${ocrEngine.value}, translator=${translator.value}, target=${targetLanguage()}, crop=${JSON.stringify(crop)}`);
+  stopAutoTranslateLoop();
+  isTranslating.value = true;
+  lastAutoSourceText = "";
+  resetOcrStability();
+  const token = autoTranslateToken;
+  statusMessage.value = ui.value.watching;
+  addLog("info", `Start auto OCR translation. window="${windowTitle.value}", ocr=${ocrEngine.value}, translator=${translator.value}, target=${targetLanguage()}, interval=${intervalDelay()}ms, crop=${JSON.stringify(crop)}`);
   await refreshCapturePreview();
-
-  await withBusy(ui.value.titleWorking, async () => {
-    addLog("info", "Invoking backend OCR translation command.");
-    const response = await invoke("ocr_translate_command", {
-      request: {
-        ...baseRequest(),
-        windowTitle: windowTitle.value.trim(),
-        ocrEngine: ocrEngine.value,
-        ...crop
-      }
-    });
-    sourceText.value = response.source || sourceText.value;
-    translatedText.value = response.translation || "";
-    addLog("info", `OCR translation finished. sourceLength=${(response.source || "").length}, translationLength=${(response.translation || "").length}`);
-    if (!response.source) {
-      addLog("warn", "OCR returned empty source text. Check selected area preview and OCR engine.");
-    }
-    statusMessage.value = ui.value.ready;
-  });
+  runAutoTranslateTick(token);
 }
 
 async function selectCaptureArea() {
@@ -645,7 +992,8 @@ async function selectCaptureArea() {
   try {
     const response = await invoke("select_area_command", {
       request: {
-        windowTitle: windowTitle.value.trim()
+        windowTitle: windowTitle.value.trim(),
+        hwnd: selectedWindowHwnd.value
       }
     });
     if (response.cancelled) {
@@ -691,6 +1039,7 @@ async function runTextTranslation() {
 }
 
 function stopTranslation() {
+  stopAutoTranslateLoop();
   isTranslating.value = false;
   statusMessage.value = ui.value.stopped;
   addLog("warn", "Stop requested.");
@@ -744,13 +1093,23 @@ async function collectEntry(source, translation) {
         tags: "tauri"
       }
     });
-    collectedCount.value += 1;
+    await refreshVocabularyCount();
     statusMessage.value = ui.value.collected;
     addLog("info", `Vocabulary collected. total=${collectedCount.value}`);
   } catch (error) {
     const detail = String(error || "Failed to collect vocabulary");
     statusMessage.value = detail;
     addLog("error", detail);
+  }
+}
+
+async function refreshVocabularyCount() {
+  try {
+    const response = await invoke("list_vocabulary_command");
+    collectedCount.value = Number(response.count) || 0;
+    addLog("info", `Vocabulary loaded. total=${collectedCount.value}`);
+  } catch (error) {
+    addLog("warn", `Vocabulary count could not be loaded: ${String(error || "unknown error")}`);
   }
 }
 </script>
