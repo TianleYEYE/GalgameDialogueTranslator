@@ -23,6 +23,12 @@ from realtime_game_translator import (
     translate_text,
 )
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Bridge commands for the Tauri UI.")
@@ -122,7 +128,12 @@ def capture_ocr_text(args: argparse.Namespace) -> str:
 
 
 def print_json(payload: dict[str, object]) -> None:
-    print(json.dumps(payload, ensure_ascii=False))
+    body = json.dumps(payload, ensure_ascii=False)
+    try:
+        print(body)
+    except UnicodeEncodeError:
+        sys.stdout.buffer.write((body + "\n").encode("utf-8"))
+        sys.stdout.buffer.flush()
 
 
 def main(argv: list[str]) -> int:
