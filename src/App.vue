@@ -379,7 +379,7 @@ const showVocabularyPanel = ref(false);
 const windowTitle = ref("");
 const selectedWindowLabel = ref("");
 const windowOptions = ref([]);
-const leftOutput = ref("Japanese");
+const leftOutput = ref("English");
 const rightOutput = ref("Simplified Chinese");
 const layout = ref("horizontal");
 const model = ref("deepseek-v4-flash");
@@ -540,7 +540,7 @@ async function startOcrTranslation() {
         bottom: floatValue(cropBottom.value, 0.95)
       }
     });
-    sourceText.value = response.source || "";
+    sourceText.value = response.source || sourceText.value;
     translatedText.value = response.translation || "";
     statusMessage.value = ui.value.ready;
   });
@@ -587,9 +587,7 @@ async function runTextTranslation() {
         text
       }
     });
-    if (response.source) {
-      sourceText.value = response.source;
-    }
+    sourceText.value = response.source || text;
     translatedText.value = response.translation || "";
     statusMessage.value = ui.value.ready;
   });
