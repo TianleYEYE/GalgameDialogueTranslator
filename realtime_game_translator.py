@@ -3,6 +3,7 @@ import base64
 import datetime as dt
 import io
 import json
+import locale
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ DEFAULT_OUTPUT_LEFT_LANGUAGE = ORIGINAL_OCR_LANGUAGE
 DEFAULT_OUTPUT_RIGHT_LANGUAGE = "Simplified Chinese"
 DEFAULT_OUTPUT_LAYOUT = "horizontal"
 BASE_WINDOW_TITLE = "Game Dialogue Translator"
+DEFAULT_UI_LANGUAGE = "auto"
 VOCABULARY_FILENAME = "vocabulary.jsonl"
 OUTPUT_LANGUAGE_OPTIONS = (
     ORIGINAL_OCR_LANGUAGE,
@@ -43,6 +45,7 @@ OUTPUT_LANGUAGE_OPTIONS = (
     "Korean",
 )
 OUTPUT_LAYOUT_OPTIONS = ("horizontal", "vertical")
+UI_LANGUAGE_OPTIONS = ("auto", "zh-CN", "en")
 OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
@@ -72,6 +75,226 @@ API_PROVIDER_CONFIGS = {
     },
 }
 
+OUTPUT_LANGUAGE_LABELS = {
+    ORIGINAL_OCR_LANGUAGE: {"en": "Original OCR", "zh-CN": "原始 OCR"},
+    "Simplified Chinese": {"en": "Simplified Chinese", "zh-CN": "简体中文"},
+    "Traditional Chinese": {"en": "Traditional Chinese", "zh-CN": "繁体中文"},
+    "Japanese": {"en": "Japanese", "zh-CN": "日语"},
+    "English": {"en": "English", "zh-CN": "英语"},
+    "Korean": {"en": "Korean", "zh-CN": "韩语"},
+}
+
+UI_STRINGS = {
+    "en": {
+        "app_title": "Game Dialogue Translator",
+        "label_window_title": "Window title",
+        "button_refresh_windows": "Refresh windows",
+        "button_place_beside": "Place beside",
+        "label_left_output": "Left output",
+        "label_model": "Model",
+        "label_right_output": "Right output",
+        "label_interval_ms": "Interval ms",
+        "button_start": "Start",
+        "button_retranslate": "Retranslate",
+        "button_stop": "Stop",
+        "button_collect_selection": "Collect Selection",
+        "button_collect_current": "Collect Current",
+        "label_ocr": "OCR",
+        "label_translator": "Translator",
+        "label_libre_url": "Libre URL",
+        "label_libre_target": "Libre target",
+        "label_api_url": "API URL",
+        "label_api_key": "API Key",
+        "button_provider_configs": "Provider configs",
+        "button_vocabulary": "Vocabulary",
+        "label_font": "Font",
+        "label_font_size": "Font size",
+        "label_layout": "Layout",
+        "label_window_list": "Window list",
+        "label_system_language": "System language",
+        "label_context": "Context",
+        "label_stable_reads": "Stable reads",
+        "check_lock_current_line": "Lock current line",
+        "frame_subtitle_crop_area": "Subtitle crop area",
+        "button_select_area": "Select area",
+        "panel_left": "Left",
+        "panel_right": "Right",
+        "panel_top": "Top",
+        "panel_bottom": "Bottom",
+        "placeholder_left": "Select a game window, then click Start.\nThe first panel can show original OCR text or a chosen language.",
+        "placeholder_right": "The second panel can show another language at the same time.",
+        "status_ready": "Ready",
+        "status_running": "Running",
+        "status_stopped": "Stopped",
+        "status_selecting_area": "Drag over the game window to select the subtitle area",
+        "status_area_updated": "Capture area updated",
+        "status_area_cancelled": "Capture area selection cancelled",
+        "status_vocabulary_collected": "Vocabulary collected",
+        "status_no_ocr_text": "No OCR text available for translation",
+        "status_translating": "Translating",
+        "status_updated": "Updated",
+        "status_window_not_found": "Window not found",
+        "status_same_dialogue": "Same dialogue detected, keeping current output",
+        "status_locked_new_dialogue": "New dialogue detected but current line is locked",
+        "status_waiting_stable_ocr": "Waiting for stable OCR text",
+        "status_no_new_text": "No new text detected",
+        "status_error": "Error: {error}",
+        "status_reading_ocr": "Reading OCR text from image",
+        "status_lookup_wiki": "Looking up wiki context",
+        "title_ready": "Ready",
+        "title_running": "Running",
+        "title_stopped": "Stopped",
+        "title_selecting_area": "Selecting area",
+        "title_area_updated": "Area updated",
+        "title_area_cancelled": "Selection cancelled",
+        "title_collected": "Collected",
+        "title_idle": "Idle",
+        "title_translating": "Translating...",
+        "title_window_not_found": "Window not found",
+        "title_locked": "Locked",
+        "title_waiting_ocr": "Waiting for OCR",
+        "title_error": "Error",
+        "title_reading_ocr": "Reading OCR...",
+        "title_lookup_wiki": "Looking up context...",
+        "dialog_provider_configs": "Provider Configs",
+        "dialog_vocabulary": "Vocabulary",
+        "dialog_collect_vocabulary": "Collect Vocabulary",
+        "header_provider": "Provider",
+        "header_use": "Use",
+        "button_use": "Use",
+        "button_save_configs": "Save configs",
+        "button_close": "Close",
+        "message_window_not_found_title": "Window not found",
+        "message_window_not_found_body": "Select a window from the list or enter part of the game window title.",
+        "message_select_area_missing_window": "Select a window from the list or enter part of the game window title before selecting an area.",
+        "message_no_selection_title": "No selection",
+        "message_no_selection_body": "Select text in one of the output panels before collecting.",
+        "message_no_current_text_title": "No current text",
+        "message_no_current_text_body": "There is no current dialogue to collect yet.",
+        "message_missing_source_title": "Missing source",
+        "message_missing_source_body": "Source text cannot be empty.",
+        "label_source": "Source",
+        "label_translation": "Translation",
+        "label_kind": "Kind",
+        "label_tags": "Tags",
+        "label_note": "Note",
+        "button_save": "Save",
+        "column_created": "Created",
+        "column_kind": "Kind",
+        "column_source": "Source",
+        "column_translation": "Translation",
+        "column_tags": "Tags",
+        "details_source_language": "Source language",
+        "details_target_language": "Target language",
+        "details_window": "Window",
+        "label_system_language_auto": "Auto",
+    },
+    "zh-CN": {
+        "app_title": "游戏对话翻译器",
+        "label_window_title": "窗口标题",
+        "button_refresh_windows": "刷新窗口",
+        "button_place_beside": "贴边摆放",
+        "label_left_output": "左侧输出",
+        "label_model": "模型",
+        "label_right_output": "右侧输出",
+        "label_interval_ms": "轮询间隔 ms",
+        "button_start": "开始",
+        "button_retranslate": "重新翻译",
+        "button_stop": "停止",
+        "button_collect_selection": "收藏选中文本",
+        "button_collect_current": "收藏当前句",
+        "label_ocr": "OCR",
+        "label_translator": "翻译器",
+        "label_libre_url": "Libre 地址",
+        "label_libre_target": "Libre 目标语",
+        "label_api_url": "API 地址",
+        "label_api_key": "API Key",
+        "button_provider_configs": "Provider 配置",
+        "button_vocabulary": "词汇本",
+        "label_font": "字体",
+        "label_font_size": "字号",
+        "label_layout": "布局",
+        "label_window_list": "窗口列表",
+        "label_system_language": "系统语言",
+        "label_context": "上下文",
+        "label_stable_reads": "稳定读取次数",
+        "check_lock_current_line": "锁定当前句",
+        "frame_subtitle_crop_area": "字幕裁剪区域",
+        "button_select_area": "选择区域",
+        "panel_left": "左侧",
+        "panel_right": "右侧",
+        "panel_top": "上方",
+        "panel_bottom": "下方",
+        "placeholder_left": "先选择游戏窗口，再点击开始。\n第一个区域可以显示原始 OCR 或你指定的语言。",
+        "placeholder_right": "第二个区域可以同时显示另一种语言。",
+        "status_ready": "就绪",
+        "status_running": "运行中",
+        "status_stopped": "已停止",
+        "status_selecting_area": "请在游戏窗口上拖拽选择字幕区域",
+        "status_area_updated": "截取区域已更新",
+        "status_area_cancelled": "已取消区域选择",
+        "status_vocabulary_collected": "已收藏到词汇本",
+        "status_no_ocr_text": "当前没有可翻译的 OCR 文本",
+        "status_translating": "翻译中",
+        "status_updated": "已更新",
+        "status_window_not_found": "未找到窗口",
+        "status_same_dialogue": "检测到相同台词，保持当前显示",
+        "status_locked_new_dialogue": "检测到新台词，但当前句已锁定",
+        "status_waiting_stable_ocr": "等待 OCR 稳定",
+        "status_no_new_text": "未检测到新文本",
+        "status_error": "错误：{error}",
+        "status_reading_ocr": "正在从图像读取 OCR 文本",
+        "status_lookup_wiki": "正在查询 Wiki 上下文",
+        "title_ready": "就绪",
+        "title_running": "运行中",
+        "title_stopped": "已停止",
+        "title_selecting_area": "选择区域中",
+        "title_area_updated": "区域已更新",
+        "title_area_cancelled": "已取消",
+        "title_collected": "已收藏",
+        "title_idle": "空闲",
+        "title_translating": "翻译中...",
+        "title_window_not_found": "未找到窗口",
+        "title_locked": "已锁定",
+        "title_waiting_ocr": "等待 OCR",
+        "title_error": "错误",
+        "title_reading_ocr": "读取 OCR 中...",
+        "title_lookup_wiki": "查询上下文中...",
+        "dialog_provider_configs": "Provider 配置",
+        "dialog_vocabulary": "词汇本",
+        "dialog_collect_vocabulary": "收藏词汇",
+        "header_provider": "Provider",
+        "header_use": "使用",
+        "button_use": "使用",
+        "button_save_configs": "保存配置",
+        "button_close": "关闭",
+        "message_window_not_found_title": "未找到窗口",
+        "message_window_not_found_body": "请选择窗口列表中的游戏窗口，或输入部分窗口标题。",
+        "message_select_area_missing_window": "请先从窗口列表选择游戏窗口，或输入部分窗口标题，再选择区域。",
+        "message_no_selection_title": "未选中文本",
+        "message_no_selection_body": "请先在任一输出区域中选中文本再进行收藏。",
+        "message_no_current_text_title": "没有当前文本",
+        "message_no_current_text_body": "当前还没有可收藏的对话。",
+        "message_missing_source_title": "缺少原文",
+        "message_missing_source_body": "原文不能为空。",
+        "label_source": "原文",
+        "label_translation": "译文",
+        "label_kind": "类型",
+        "label_tags": "标签",
+        "label_note": "备注",
+        "button_save": "保存",
+        "column_created": "创建时间",
+        "column_kind": "类型",
+        "column_source": "原文",
+        "column_translation": "译文",
+        "column_tags": "标签",
+        "details_source_language": "原文语言",
+        "details_target_language": "目标语言",
+        "details_window": "窗口",
+        "label_system_language_auto": "自动",
+    },
+}
+
 
 def detect_api_provider(base_url: str, fallback: str = "") -> str:
     url = base_url.casefold()
@@ -94,6 +317,14 @@ def local_config_path() -> str:
 
 def vocabulary_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), VOCABULARY_FILENAME)
+
+
+def detect_system_language() -> str:
+    preferred = locale.getdefaultlocale()[0] if locale.getdefaultlocale() else ""
+    value = (preferred or "").lower()
+    if "zh" in value:
+        return "zh-CN"
+    return "en"
 
 
 def configure_tesseract() -> None:
@@ -833,9 +1064,56 @@ def load_vocabulary_entries() -> list[dict[str, object]]:
 
 
 class TranslatorApp:
+    def _app_title(self) -> str:
+        return self._tr("app_title")
+
+    def _tr(self, key: str, **kwargs: object) -> str:
+        bundle = UI_STRINGS.get(self.ui_language, UI_STRINGS["en"])
+        text = bundle.get(key, UI_STRINGS["en"].get(key, key))
+        return text.format(**kwargs) if kwargs else text
+
+    def _language_display_name(self, value: str) -> str:
+        if value == "auto":
+            return self._tr("label_system_language_auto")
+        names = {"en": "English", "zh-CN": "简体中文"}
+        return names.get(value, value)
+
+    def _panel_language_label(self, value: str) -> str:
+        return OUTPUT_LANGUAGE_LABELS.get(value, {}).get(self.ui_language, value)
+
+    def _on_ui_language_changed(self) -> None:
+        selected = self.ui_language_var.get().strip() or DEFAULT_UI_LANGUAGE
+        self.ui_language = detect_system_language() if selected == "auto" else selected
+        self._rebuild_ui_language()
+        self.save_settings()
+
+    def _rebuild_ui_language(self) -> None:
+        if self.provider_config_window is not None and self.provider_config_window.winfo_exists():
+            self.provider_config_window.destroy()
+            self.provider_config_window = None
+        for child in list(self.root.winfo_children()):
+            child.destroy()
+        self.main_controls = None
+        self.crop_frame = None
+        self.output_frame = None
+        self.left_output_frame = None
+        self.right_output_frame = None
+        self.left_output = None
+        self.right_output = None
+        self.window_combo = None
+        self.model_combo = None
+        self.status_text.set(self._tr("status_ready") if not self.status_text.get() else self.status_text.get())
+        self.root.title(f"{self._app_title()} [{self.title_status_text}]")
+        self._build_ui()
+        self.refresh_window_list()
+        self._sync_api_provider_fields()
+        self._refresh_outputs_for_current_text()
+
     def __init__(self, root: tk.Tk, args: argparse.Namespace) -> None:
         self.root = root
-        self.root.title(BASE_WINDOW_TITLE)
+        self.ui_language_var = tk.StringVar(value=args.ui_language)
+        self.ui_language = detect_system_language() if args.ui_language == "auto" else args.ui_language
+        self.root.title(self._app_title())
         self.root.geometry("580x560")
         self.root.attributes("-topmost", True)
 
@@ -844,8 +1122,8 @@ class TranslatorApp:
         self.stop_event = threading.Event()
         self.last_ocr_text = ""
         self.translation_cache: dict[str, str] = {}
-        self.status_text = tk.StringVar(value="Ready")
-        self.title_status_text = "Ready"
+        self.status_text = tk.StringVar(value=self._tr("status_ready"))
+        self.title_status_text = self._tr("title_ready")
         self.config_path = local_config_path()
 
         self.title_var = tk.StringVar(value=args.title)
@@ -895,6 +1173,9 @@ class TranslatorApp:
         self.window_combo: ttk.Combobox | None = None
         self.model_combo: ttk.Combobox | None = None
         self.provider_config_window: tk.Toplevel | None = None
+        self.main_controls: ttk.Frame | None = None
+        self.crop_frame: ttk.LabelFrame | None = None
+        self.status_label: ttk.Label | None = None
         self.output_font = tkfont.Font(family=self.output_font_family_var.get(), size=self.output_font_size_var.get())
         self.output_frame: ttk.Frame | None = None
         self.left_output_frame: ttk.LabelFrame | None = None
@@ -914,18 +1195,20 @@ class TranslatorApp:
         self.output_layout_var.trace_add("write", lambda *_args: self._rebuild_output_layout())
         self.output_font_family_var.trace_add("write", lambda *_args: self._apply_output_font())
         self.output_font_size_var.trace_add("write", lambda *_args: self._apply_output_font())
+        self.ui_language_var.trace_add("write", lambda *_args: self._on_ui_language_changed())
 
     def _build_ui(self) -> None:
         root = self.root
         controls = ttk.Frame(root, padding=8)
+        self.main_controls = controls
         controls.pack(fill="x")
 
-        ttk.Label(controls, text="Window title").grid(row=0, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_window_title")).grid(row=0, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.title_var, width=26).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(controls, text="Refresh windows", command=self.refresh_window_list).grid(row=0, column=2, padx=3)
-        ttk.Button(controls, text="Place beside", command=self.place_beside_game).grid(row=0, column=3, padx=3)
+        ttk.Button(controls, text=self._tr("button_refresh_windows"), command=self.refresh_window_list).grid(row=0, column=2, padx=3)
+        ttk.Button(controls, text=self._tr("button_place_beside"), command=self.place_beside_game).grid(row=0, column=3, padx=3)
 
-        ttk.Label(controls, text="Left output").grid(row=1, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_left_output")).grid(row=1, column=0, sticky="w")
         ttk.Combobox(
             controls,
             textvariable=self.left_language_var,
@@ -933,10 +1216,10 @@ class TranslatorApp:
             width=16,
             state="readonly",
         ).grid(row=1, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text="Model").grid(row=1, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_model")).grid(row=1, column=2, sticky="e")
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, width=18)
         self.model_combo.grid(row=1, column=3, sticky="ew", padx=3)
-        ttk.Label(controls, text="Right output").grid(row=1, column=4, sticky="e")
+        ttk.Label(controls, text=self._tr("label_right_output")).grid(row=1, column=4, sticky="e")
         ttk.Combobox(
             controls,
             textvariable=self.right_language_var,
@@ -945,17 +1228,17 @@ class TranslatorApp:
             state="readonly",
         ).grid(row=1, column=5, sticky="w", padx=3)
 
-        ttk.Label(controls, text="Interval ms").grid(row=2, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_interval_ms")).grid(row=2, column=0, sticky="w")
         ttk.Spinbox(controls, from_=500, to=10000, increment=250, textvariable=self.interval_var, width=10).grid(
             row=2, column=1, sticky="w", padx=6
         )
-        ttk.Button(controls, text="Start", command=self.start).grid(row=2, column=2, padx=3)
-        ttk.Button(controls, text="Retranslate", command=self.retranslate_current_text).grid(row=2, column=3, padx=3, sticky="w")
-        ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=4, padx=3, sticky="w")
-        ttk.Button(controls, text="Collect Selection", command=self.collect_selection).grid(row=2, column=5, padx=3, sticky="w")
-        ttk.Button(controls, text="Collect Current", command=self.collect_current_pair).grid(row=2, column=6, padx=3, sticky="w")
+        ttk.Button(controls, text=self._tr("button_start"), command=self.start).grid(row=2, column=2, padx=3)
+        ttk.Button(controls, text=self._tr("button_retranslate"), command=self.retranslate_current_text).grid(row=2, column=3, padx=3, sticky="w")
+        ttk.Button(controls, text=self._tr("button_stop"), command=self.stop).grid(row=2, column=4, padx=3, sticky="w")
+        ttk.Button(controls, text=self._tr("button_collect_selection"), command=self.collect_selection).grid(row=2, column=5, padx=3, sticky="w")
+        ttk.Button(controls, text=self._tr("button_collect_current"), command=self.collect_current_pair).grid(row=2, column=6, padx=3, sticky="w")
 
-        ttk.Label(controls, text="OCR").grid(row=3, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_ocr")).grid(row=3, column=0, sticky="w")
         ttk.Combobox(
             controls,
             textvariable=self.ocr_engine_var,
@@ -963,7 +1246,7 @@ class TranslatorApp:
             width=16,
             state="readonly",
         ).grid(row=3, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text="Translator").grid(row=3, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_translator")).grid(row=3, column=2, sticky="e")
         ttk.Combobox(
             controls,
             textvariable=self.translator_var,
@@ -972,29 +1255,29 @@ class TranslatorApp:
             state="readonly",
         ).grid(row=3, column=3, sticky="w", padx=3)
 
-        ttk.Label(controls, text="Libre URL").grid(row=4, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_libre_url")).grid(row=4, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.libre_url_var, width=26).grid(row=4, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text="Libre target").grid(row=4, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_libre_target")).grid(row=4, column=2, sticky="e")
         ttk.Entry(controls, textvariable=self.libre_target_var, width=8).grid(row=4, column=3, sticky="w", padx=3)
 
-        ttk.Label(controls, text="API URL").grid(row=5, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_api_url")).grid(row=5, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.api_url_var, width=32).grid(row=5, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text="API Key").grid(row=5, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_api_key")).grid(row=5, column=2, sticky="e")
         ttk.Entry(controls, textvariable=self.api_key_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
-        ttk.Button(controls, text="Provider configs", command=self.open_provider_config_window).grid(
+        ttk.Button(controls, text=self._tr("button_provider_configs"), command=self.open_provider_config_window).grid(
             row=5, column=4, padx=(6, 0), sticky="w"
         )
-        ttk.Button(controls, text="Vocabulary", command=self.open_vocabulary_window).grid(
+        ttk.Button(controls, text=self._tr("button_vocabulary"), command=self.open_vocabulary_window).grid(
             row=5, column=5, padx=(6, 0), sticky="w"
         )
 
-        ttk.Label(controls, text="Font").grid(row=6, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_font")).grid(row=6, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.output_font_family_var, width=26).grid(row=6, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text="Font size").grid(row=6, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_font_size")).grid(row=6, column=2, sticky="e")
         ttk.Spinbox(controls, from_=8, to=40, increment=1, textvariable=self.output_font_size_var, width=8).grid(
             row=6, column=3, sticky="w", padx=3
         )
-        ttk.Label(controls, text="Layout").grid(row=6, column=4, sticky="e")
+        ttk.Label(controls, text=self._tr("label_layout")).grid(row=6, column=4, sticky="e")
         ttk.Combobox(
             controls,
             textvariable=self.output_layout_var,
@@ -1003,7 +1286,7 @@ class TranslatorApp:
             state="readonly",
         ).grid(row=6, column=5, sticky="w", padx=3)
 
-        ttk.Label(controls, text="Window list").grid(row=7, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_window_list")).grid(row=7, column=0, sticky="w")
         self.window_combo = ttk.Combobox(
             controls,
             textvariable=self.window_choice_var,
@@ -1013,22 +1296,31 @@ class TranslatorApp:
         )
         self.window_combo.grid(row=7, column=1, columnspan=3, sticky="ew", padx=6, pady=(3, 0))
         self.window_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_window_selected())
+        ttk.Label(controls, text=self._tr("label_system_language")).grid(row=7, column=4, sticky="e")
+        ttk.Combobox(
+            controls,
+            textvariable=self.ui_language_var,
+            values=UI_LANGUAGE_OPTIONS,
+            width=12,
+            state="readonly",
+        ).grid(row=7, column=5, sticky="w", padx=3, pady=(3, 0))
 
-        ttk.Label(controls, text="Context").grid(row=8, column=0, sticky="w")
+        ttk.Label(controls, text=self._tr("label_context")).grid(row=8, column=0, sticky="w")
         ttk.Spinbox(controls, from_=0, to=12, increment=1, textvariable=self.context_lines_var, width=8).grid(
             row=8, column=1, sticky="w", padx=6
         )
-        ttk.Label(controls, text="Stable reads").grid(row=8, column=2, sticky="e")
+        ttk.Label(controls, text=self._tr("label_stable_reads")).grid(row=8, column=2, sticky="e")
         ttk.Spinbox(controls, from_=1, to=5, increment=1, textvariable=self.stable_reads_var, width=8).grid(
             row=8, column=3, sticky="w", padx=3
         )
-        ttk.Checkbutton(controls, text="Lock current line", variable=self.lock_current_line_var).grid(
+        ttk.Checkbutton(controls, text=self._tr("check_lock_current_line"), variable=self.lock_current_line_var).grid(
             row=8, column=4, columnspan=2, sticky="w", padx=(6, 0)
         )
 
-        crop = ttk.LabelFrame(root, text="Subtitle crop area", padding=8)
+        crop = ttk.LabelFrame(root, text=self._tr("frame_subtitle_crop_area"), padding=8)
+        self.crop_frame = crop
         crop.pack(fill="x", padx=8, pady=(0, 8))
-        ttk.Button(crop, text="Select area", command=self.select_capture_area).grid(
+        ttk.Button(crop, text=self._tr("button_select_area"), command=self.select_capture_area).grid(
             row=0, column=0, columnspan=2, sticky="w", padx=(0, 10), pady=(0, 6)
         )
         for index, (label, var) in enumerate(
@@ -1049,6 +1341,7 @@ class TranslatorApp:
         self._build_output_layout()
 
         status = ttk.Label(root, textvariable=self.status_text, anchor="w", padding=(8, 0, 8, 8))
+        self.status_label = status
         status.pack(fill="x")
         controls.columnconfigure(1, weight=1)
         controls.columnconfigure(3, weight=1)
@@ -1062,12 +1355,12 @@ class TranslatorApp:
         self.stop_event.clear()
         self.worker = threading.Thread(target=self._loop, daemon=True)
         self.worker.start()
-        self._set_status("Running", "Running")
+        self._set_status(self._tr("status_running"), self._tr("title_running"))
 
     def stop(self) -> None:
         self.running = False
         self.stop_event.set()
-        self._set_status("Stopped", "Stopped")
+        self._set_status(self._tr("status_stopped"), self._tr("title_stopped"))
 
     def refresh_window_list(self) -> None:
         windows = list_capture_windows()
@@ -1090,8 +1383,8 @@ class TranslatorApp:
         window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
         if not window:
             messagebox.showwarning(
-                "Window not found",
-                "Select a window from the list or enter part of the game window title.",
+                self._tr("message_window_not_found_title"),
+                self._tr("message_window_not_found_body"),
             )
             return
         left, top, right, bottom = window.rect
@@ -1108,11 +1401,11 @@ class TranslatorApp:
         window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
         if not window:
             messagebox.showwarning(
-                "Window not found",
-                "Select a window from the list or enter part of the game window title before selecting an area.",
+                self._tr("message_window_not_found_title"),
+                self._tr("message_select_area_missing_window"),
             )
             return
-        self._set_status("Drag over the game window to select the subtitle area", "Selecting area")
+        self._set_status(self._tr("status_selecting_area"), self._tr("title_selecting_area"))
 
         def apply_region(region: tuple[float, float, float, float]) -> None:
             left, top, right, bottom = region
@@ -1120,10 +1413,10 @@ class TranslatorApp:
             self.top_var.set(round(top, 3))
             self.right_var.set(round(right, 3))
             self.bottom_var.set(round(bottom, 3))
-            self._set_status("Capture area updated", "Area updated")
+            self._set_status(self._tr("status_area_updated"), self._tr("title_area_updated"))
 
         def cancel_region() -> None:
-            self._set_status("Capture area selection cancelled", "Selection cancelled")
+            self._set_status(self._tr("status_area_cancelled"), self._tr("title_area_cancelled"))
 
         select_region_for_window(self.root, window, apply_region, cancel_region)
 
@@ -1171,7 +1464,7 @@ class TranslatorApp:
             return
 
         window = tk.Toplevel(self.root)
-        window.title("Provider Configs")
+        window.title(self._tr("dialog_provider_configs"))
         window.geometry("860x220")
         window.transient(self.root)
         self.provider_config_window = window
@@ -1179,7 +1472,13 @@ class TranslatorApp:
         frame = ttk.Frame(window, padding=10)
         frame.pack(fill="both", expand=True)
 
-        headers = ("Provider", "Model", "API URL", "API Key", "Use")
+        headers = (
+            self._tr("header_provider"),
+            self._tr("label_model"),
+            self._tr("label_api_url"),
+            self._tr("label_api_key"),
+            self._tr("header_use"),
+        )
         for col, header in enumerate(headers):
             ttk.Label(frame, text=header).grid(row=0, column=col, sticky="w", padx=4, pady=(0, 6))
 
@@ -1194,12 +1493,12 @@ class TranslatorApp:
             ttk.Entry(frame, textvariable=model_var, width=18).grid(row=row, column=1, sticky="ew", padx=4, pady=4)
             ttk.Entry(frame, textvariable=url_var, width=34).grid(row=row, column=2, sticky="ew", padx=4, pady=4)
             ttk.Entry(frame, textvariable=key_var, width=28).grid(row=row, column=3, sticky="ew", padx=4, pady=4)
-            ttk.Button(frame, text="Use", command=lambda p=provider_key: self.use_provider_config(p)).grid(
+            ttk.Button(frame, text=self._tr("button_use"), command=lambda p=provider_key: self.use_provider_config(p)).grid(
                 row=row, column=4, sticky="w", padx=4, pady=4
             )
 
-        ttk.Button(frame, text="Save configs", command=self.save_settings).grid(row=4, column=3, sticky="e", padx=4, pady=(10, 0))
-        ttk.Button(frame, text="Close", command=window.destroy).grid(row=4, column=4, sticky="w", padx=4, pady=(10, 0))
+        ttk.Button(frame, text=self._tr("button_save_configs"), command=self.save_settings).grid(row=4, column=3, sticky="e", padx=4, pady=(10, 0))
+        ttk.Button(frame, text=self._tr("button_close"), command=window.destroy).grid(row=4, column=4, sticky="w", padx=4, pady=(10, 0))
 
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=1)
@@ -1234,6 +1533,7 @@ class TranslatorApp:
             "stable_reads": settings.stable_reads,
             "lock_current_line": self.lock_current_line_var.get(),
             "interval_ms": self.interval_var.get(),
+            "ui_language": self.ui_language_var.get().strip() or DEFAULT_UI_LANGUAGE,
             "output_layout": settings.output_layout,
             "font_family": settings.font_family,
             "font_size": settings.font_size,
@@ -1275,24 +1575,24 @@ class TranslatorApp:
     def _set_status(self, text: str, title_hint: str = "") -> None:
         self.status_text.set(text)
         self.title_status_text = title_hint or text
-        self.root.title(f"{BASE_WINDOW_TITLE} [{self.title_status_text}]")
+        self.root.title(f"{self._app_title()} [{self.title_status_text}]")
 
     def _build_output_layout(self) -> None:
         if self.output_frame is None:
             return
         layout = self.output_layout_var.get().strip() or DEFAULT_OUTPUT_LAYOUT
         is_vertical = layout == "vertical"
-        left_label = self.left_language_var.get().strip() or DEFAULT_OUTPUT_LEFT_LANGUAGE
-        right_label = self.right_language_var.get().strip() or DEFAULT_OUTPUT_RIGHT_LANGUAGE
+        left_label = self._panel_language_label(self.left_language_var.get().strip() or DEFAULT_OUTPUT_LEFT_LANGUAGE)
+        right_label = self._panel_language_label(self.right_language_var.get().strip() or DEFAULT_OUTPUT_RIGHT_LANGUAGE)
 
         self.left_output_frame = ttk.LabelFrame(
             self.output_frame,
-            text=f"{'Top' if is_vertical else 'Left'}: {left_label}",
+            text=f"{self._tr('panel_top') if is_vertical else self._tr('panel_left')}: {left_label}",
             padding=6,
         )
         self.right_output_frame = ttk.LabelFrame(
             self.output_frame,
-            text=f"{'Bottom' if is_vertical else 'Right'}: {right_label}",
+            text=f"{self._tr('panel_bottom') if is_vertical else self._tr('panel_right')}: {right_label}",
             padding=6,
         )
 
@@ -1311,11 +1611,11 @@ class TranslatorApp:
         self.left_output.insert(
             "1.0",
             self.last_displayed_left_text
-            or "Select a game window, then click Start.\nThe first panel can show original OCR text or a chosen language.",
+            or self._tr("placeholder_left"),
         )
         self.right_output.insert(
             "1.0",
-            self.last_displayed_right_text or "The second panel can show another language at the same time.",
+            self.last_displayed_right_text or self._tr("placeholder_right"),
         )
 
     def _rebuild_output_layout(self) -> None:
@@ -1364,7 +1664,7 @@ class TranslatorApp:
         translation_text = right_selection or self.last_displayed_right_text.strip()
 
         if not left_selection and not right_selection:
-            messagebox.showinfo("No selection", "Select text in one of the output panels before collecting.")
+            messagebox.showinfo(self._tr("message_no_selection_title"), self._tr("message_no_selection_body"))
             return
 
         self.open_collect_dialog(source_text, translation_text)
@@ -1373,13 +1673,13 @@ class TranslatorApp:
         source_text = self.last_displayed_left_text.strip()
         translation_text = self.last_displayed_right_text.strip()
         if not source_text and not translation_text:
-            messagebox.showinfo("No current text", "There is no current dialogue to collect yet.")
+            messagebox.showinfo(self._tr("message_no_current_text_title"), self._tr("message_no_current_text_body"))
             return
         self.open_collect_dialog(source_text, translation_text)
 
     def open_collect_dialog(self, source_text: str, translation_text: str) -> None:
         dialog = tk.Toplevel(self.root)
-        dialog.title("Collect Vocabulary")
+        dialog.title(self._tr("dialog_collect_vocabulary"))
         dialog.geometry("720x420")
         dialog.transient(self.root)
 
@@ -1391,25 +1691,25 @@ class TranslatorApp:
         kind_var = tk.StringVar(value="phrase" if " " in source_text else "word")
         tags_var = tk.StringVar(value="")
 
-        ttk.Label(frame, text="Source").grid(row=0, column=0, sticky="w")
+        ttk.Label(frame, text=self._tr("label_source")).grid(row=0, column=0, sticky="w")
         source_box = tk.Text(frame, height=5, wrap="word")
         source_box.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
         source_box.insert("1.0", source_var.get())
 
-        ttk.Label(frame, text="Translation").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text=self._tr("label_translation")).grid(row=2, column=0, sticky="w")
         translation_box = tk.Text(frame, height=5, wrap="word")
         translation_box.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
         translation_box.insert("1.0", translation_var.get())
 
-        ttk.Label(frame, text="Kind").grid(row=4, column=0, sticky="w")
+        ttk.Label(frame, text=self._tr("label_kind")).grid(row=4, column=0, sticky="w")
         ttk.Combobox(frame, textvariable=kind_var, values=("word", "phrase", "sentence"), width=12, state="readonly").grid(
             row=4, column=1, sticky="w", pady=(0, 8)
         )
 
-        ttk.Label(frame, text="Tags").grid(row=5, column=0, sticky="w")
+        ttk.Label(frame, text=self._tr("label_tags")).grid(row=5, column=0, sticky="w")
         ttk.Entry(frame, textvariable=tags_var, width=32).grid(row=5, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(frame, text="Note").grid(row=6, column=0, sticky="w")
+        ttk.Label(frame, text=self._tr("label_note")).grid(row=6, column=0, sticky="w")
         note_box = tk.Text(frame, height=4, wrap="word")
         note_box.grid(row=7, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
 
@@ -1418,7 +1718,7 @@ class TranslatorApp:
             translation_value = translation_box.get("1.0", "end").strip()
             note_value = note_box.get("1.0", "end").strip()
             if not source_value:
-                messagebox.showwarning("Missing source", "Source text cannot be empty.")
+                messagebox.showwarning(self._tr("message_missing_source_title"), self._tr("message_missing_source_body"))
                 return
             entry = {
                 "source": source_value,
@@ -1432,13 +1732,13 @@ class TranslatorApp:
                 "window_title": self.title_var.get().strip(),
             }
             append_vocabulary_entry(entry)
-            self._set_status("Vocabulary collected", "Collected")
+            self._set_status(self._tr("status_vocabulary_collected"), self._tr("title_collected"))
             dialog.destroy()
 
         button_row = ttk.Frame(frame)
         button_row.grid(row=8, column=0, columnspan=2, sticky="e")
-        ttk.Button(button_row, text="Save", command=save_entry).pack(side="left", padx=(0, 6))
-        ttk.Button(button_row, text="Cancel", command=dialog.destroy).pack(side="left")
+        ttk.Button(button_row, text=self._tr("button_save"), command=save_entry).pack(side="left", padx=(0, 6))
+        ttk.Button(button_row, text=self._tr("button_close"), command=dialog.destroy).pack(side="left")
 
         frame.columnconfigure(1, weight=1)
         frame.rowconfigure(1, weight=1)
@@ -1447,12 +1747,12 @@ class TranslatorApp:
 
     def _translate_current_text(self, ocr_text: str, force_refresh: bool = False) -> None:
         if not ocr_text:
-            self._set_status("No OCR text available for translation", "Idle")
+            self._set_status(self._tr("status_no_ocr_text"), self._tr("title_idle"))
             return
         if force_refresh:
             self.translation_cache.clear()
 
-        self._set_status("Translating", "Translating...")
+        self._set_status(self._tr("status_translating"), self._tr("title_translating"))
         settings = self._settings()
         context = self._translation_context()
         window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
@@ -1464,7 +1764,7 @@ class TranslatorApp:
         self._remember_source_line(ocr_text)
         self._set_left_output(left_text)
         self._set_right_output(right_text)
-        self._set_status("Updated", "Ready")
+        self._set_status(self._tr("status_updated"), self._tr("title_ready"))
 
     def retranslate_current_text(self) -> None:
         source_text = self.pending_ocr_text or self.last_translated_ocr_text or self.last_ocr_text
@@ -1472,7 +1772,7 @@ class TranslatorApp:
 
     def open_vocabulary_window(self) -> None:
         window = tk.Toplevel(self.root)
-        window.title("Vocabulary")
+        window.title(self._tr("dialog_vocabulary"))
         window.geometry("900x520")
         window.transient(self.root)
 
@@ -1482,11 +1782,11 @@ class TranslatorApp:
         columns = ("created_at", "kind", "source", "translation", "tags")
         tree = ttk.Treeview(frame, columns=columns, show="headings")
         headings = {
-            "created_at": "Created",
-            "kind": "Kind",
-            "source": "Source",
-            "translation": "Translation",
-            "tags": "Tags",
+            "created_at": self._tr("column_created"),
+            "kind": self._tr("column_kind"),
+            "source": self._tr("column_source"),
+            "translation": self._tr("column_translation"),
+            "tags": self._tr("column_tags"),
         }
         widths = {
             "created_at": 140,
@@ -1528,16 +1828,16 @@ class TranslatorApp:
                 return
             entry = entries[int(selected[0])]
             lines = [
-                f"Source: {entry.get('source', '')}",
-                f"Translation: {entry.get('translation', '')}",
-                f"Source language: {entry.get('source_language', '')}",
-                f"Target language: {entry.get('target_language', '')}",
-                f"Kind: {entry.get('kind', '')}",
-                f"Tags: {', '.join(entry.get('tags', [])) if isinstance(entry.get('tags'), list) else entry.get('tags', '')}",
-                f"Window: {entry.get('window_title', '')}",
-                f"Created: {entry.get('created_at', '')}",
+                f"{self._tr('label_source')}: {entry.get('source', '')}",
+                f"{self._tr('label_translation')}: {entry.get('translation', '')}",
+                f"{self._tr('details_source_language')}: {entry.get('source_language', '')}",
+                f"{self._tr('details_target_language')}: {entry.get('target_language', '')}",
+                f"{self._tr('label_kind')}: {entry.get('kind', '')}",
+                f"{self._tr('label_tags')}: {', '.join(entry.get('tags', [])) if isinstance(entry.get('tags'), list) else entry.get('tags', '')}",
+                f"{self._tr('details_window')}: {entry.get('window_title', '')}",
+                f"{self._tr('column_created')}: {entry.get('created_at', '')}",
                 "",
-                f"Note: {entry.get('note', '')}",
+                f"{self._tr('label_note')}: {entry.get('note', '')}",
             ]
             details.delete("1.0", "end")
             details.insert("1.0", "\n".join(lines))
@@ -1554,7 +1854,7 @@ class TranslatorApp:
                 try:
                     window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
                     if not window:
-                        self.root.after(0, self._set_status, "Window not found", "Window not found")
+                        self.root.after(0, self._set_status, self._tr("status_window_not_found"), self._tr("title_window_not_found"))
                         time.sleep(1)
                         continue
 
@@ -1566,24 +1866,24 @@ class TranslatorApp:
                         and ocr_texts_are_similar(ocr_text, self.last_translated_ocr_text)
                     ):
                         self.last_ocr_text = ocr_text
-                        self.root.after(0, self._set_status, "Same dialogue detected, keeping current output", "Idle")
+                        self.root.after(0, self._set_status, self._tr("status_same_dialogue"), self._tr("title_idle"))
                     elif ocr_text and ocr_text != self.last_ocr_text:
                         if self.lock_current_line_var.get():
                             self.last_ocr_text = ocr_text
-                            self.root.after(0, self._set_status, "New dialogue detected but current line is locked", "Locked")
+                            self.root.after(0, self._set_status, self._tr("status_locked_new_dialogue"), self._tr("title_locked"))
                             time.sleep(max(self.interval_var.get(), 500) / 1000)
                             continue
                         if not self._ocr_is_stable(ocr_text):
-                            self.root.after(0, self._set_status, "Waiting for stable OCR text", "Waiting for OCR")
+                            self.root.after(0, self._set_status, self._tr("status_waiting_stable_ocr"), self._tr("title_waiting_ocr"))
                             time.sleep(max(self.interval_var.get(), 500) / 1000)
                             continue
 
                         ocr_text = self.pending_ocr_text
                         self.root.after(0, self._translate_current_text, ocr_text, False)
                     else:
-                        self.root.after(0, self._set_status, "No new text detected", "Idle")
+                        self.root.after(0, self._set_status, self._tr("status_no_new_text"), self._tr("title_idle"))
                 except Exception as exc:
-                    self.root.after(0, self._set_status, f"Error: {exc}", "Error")
+                    self.root.after(0, self._set_status, self._tr("status_error", error=exc), self._tr("title_error"))
 
                 time.sleep(max(self.interval_var.get(), 500) / 1000)
 
@@ -1618,7 +1918,7 @@ class TranslatorApp:
         if engine == "tesseract" or (engine == "auto" and has_tesseract):
             return self._ocr(image)
         if engine == "auto" or engine == "openai-vision":
-            self.root.after(0, self._set_status, "Reading OCR text from image", "Reading OCR...")
+            self.root.after(0, self._set_status, self._tr("status_reading_ocr"), self._tr("title_reading_ocr"))
             return read_text_with_openai(
                 image,
                 self.model_var.get().strip() or "gpt-4o-mini",
@@ -1720,7 +2020,7 @@ class TranslatorApp:
         if key == self.current_work_context_key:
             return self.current_work_context
         if key not in self.work_context_cache:
-            self.root.after(0, self._set_status, "Looking up wiki context", "Looking up context...")
+            self.root.after(0, self._set_status, self._tr("status_lookup_wiki"), self._tr("title_lookup_wiki"))
             self.work_context_cache[key] = fetch_wiki_context(key)
         self.current_work_context_key = key
         self.current_work_context = self.work_context_cache.get(key, "")
@@ -1882,6 +2182,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=int(config.get("interval_ms", 1500)),
         help="OCR polling interval in milliseconds.",
+    )
+    parser.add_argument(
+        "--ui-language",
+        default=str(config.get("ui_language", DEFAULT_UI_LANGUAGE)),
+        choices=UI_LANGUAGE_OPTIONS,
+        help="UI language: auto, zh-CN, or en.",
     )
     parser.add_argument(
         "--output-layout",
