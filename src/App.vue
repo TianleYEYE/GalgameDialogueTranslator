@@ -1,97 +1,98 @@
 <template>
   <div class="app-shell">
-    <main class="surface">
-      <section class="control-card">
-        <div class="status-ribbon">
-          <strong>Game Dialogue Translator</strong>
-          <span v-if="isTranslating" class="title-badge">{{ titleHint }}</span>
-          <span class="window-state">{{ statusMessage || ui.ready }}</span>
+    <main class="translator-console">
+      <section class="topbar">
+        <label class="window-picker">
+          <span>{{ ui.gameWindow }}</span>
+          <select v-model="selectedWindowLabel" @change="applySelectedWindow">
+            <option value="">{{ ui.noWindowSelected }}</option>
+            <option v-for="window in windowOptions" :key="window.hwnd" :value="window.label">
+              {{ window.label }}
+            </option>
+          </select>
+        </label>
+        <button class="btn btn-ghost" :disabled="isTranslating" @click="refreshWindows">
+          {{ ui.refreshWindows }}
+        </button>
+        <button class="btn btn-ghost" type="button" @click="togglePlaceHint">
+          {{ ui.placeBeside }}
+        </button>
+      </section>
+
+      <section class="output-card">
+        <div class="section-head">
+          <span>{{ ui.translationOutput }}</span>
+          <div class="reading-tools">
+            <span>{{ ui.readingDirection }}</span>
+            <button class="icon-toggle" :class="{ active: layout === 'horizontal' }" @click="layout = 'horizontal'">
+              ↔
+            </button>
+            <button class="icon-toggle" :class="{ active: layout === 'vertical' }" @click="layout = 'vertical'">
+              ↕
+            </button>
+            <span class="tool-divider"></span>
+            <button class="icon-toggle" type="button" @click="showDisplayPanel = !showDisplayPanel">⚙</button>
+          </div>
         </div>
 
-        <div class="control-ribbon">
-          <label class="field field-window">
-            <span>{{ ui.windowTitle }}</span>
-            <input v-model="windowTitle" />
-          </label>
-          <button class="btn btn-ghost" :disabled="isTranslating" @click="refreshWindows">
-            {{ ui.refreshWindows }}
-          </button>
-          <button class="btn btn-ghost" type="button" @click="toggleLayout">
-            {{ layout === "vertical" ? ui.layoutVertical : ui.layoutHorizontal }}
-          </button>
+        <div class="panel-stack" :class="{ horizontal: layout === 'horizontal' }">
+          <section class="reading-panel">
+            <div class="panel-meta">
+              <span class="dot dot-source"></span>
+              <span>{{ leftOutput }}</span>
+              <button class="small-action" type="button" @click="collectSelection">{{ ui.collect }}</button>
+            </div>
+            <textarea
+              ref="sourceTextarea"
+              v-model="sourceText"
+              class="dialogue-surface editable-panel"
+              :style="panelFontStyle"
+              spellcheck="false"
+            ></textarea>
+          </section>
+
+          <section class="reading-panel">
+            <div class="panel-meta">
+              <span class="dot dot-target"></span>
+              <span>{{ rightOutput }}</span>
+              <button class="small-action" type="button" @click="copyTranslation">{{ ui.copy }}</button>
+              <button class="small-action" type="button" @click="collectCurrent">{{ ui.collect }}</button>
+            </div>
+            <div class="dialogue-surface translated-panel" :style="panelFontStyle">
+              <p>{{ translatedText || ui.emptyTranslation }}</p>
+            </div>
+          </section>
         </div>
 
-        <div class="action-ribbon">
-          <button class="btn btn-primary" :disabled="isTranslating" @click="startOcrTranslation">
-            {{ isTranslating ? ui.translating : ui.start }}
+        <div class="primary-actions">
+          <button class="btn btn-primary btn-wide" :disabled="isTranslating" @click="startOcrTranslation">
+            ▶ {{ isTranslating ? ui.translating : ui.start }}
           </button>
-          <button class="btn btn-ghost" :disabled="isTranslating" @click="runTextTranslation">
-            {{ ui.retranslate }}
+          <button class="btn btn-ghost btn-wide" :disabled="isTranslating" @click="runTextTranslation">
+            ⟳ {{ ui.retranslate }}
           </button>
-          <button class="btn btn-danger" @click="stopTranslation">{{ ui.stop }}</button>
-          <span class="ribbon-divider"></span>
-          <button class="btn btn-ghost" :disabled="isTranslating" @click="collectSelection">
-            {{ ui.collectSelection }}
-          </button>
-          <button class="btn btn-ghost" :disabled="isTranslating" @click="collectCurrent">
-            {{ ui.collectCurrent }}
-          </button>
-          <button class="btn btn-ghost push-end" type="button" @click="advancedOpen = !advancedOpen">
-            {{ advancedOpen ? ui.hideAdvanced : ui.advanced }}
+          <button class="btn btn-danger btn-wide" @click="stopTranslation">
+            ■ {{ ui.stop }}
           </button>
         </div>
+      </section>
 
-        <div class="settings-matrix">
-          <label class="field">
-            <span>{{ ui.leftOutput }}</span>
-            <select v-model="leftOutput">
-              <option>Original OCR</option>
-              <option>Japanese</option>
-              <option>English</option>
-              <option>Simplified Chinese</option>
-              <option>Traditional Chinese</option>
+      <section class="settings-deck">
+        <div class="settings-panel">
+          <h3>{{ ui.ocrEngine }}</h3>
+          <label class="stack-field">
+            <span>{{ ui.ocr }}</span>
+            <select v-model="ocrEngine">
+              <option>tesseract</option>
+              <option>openai-vision</option>
             </select>
           </label>
+          <button class="square-btn" type="button" @click="selectCaptureArea">{{ ui.selectArea }}</button>
+        </div>
 
-          <label class="field">
-            <span>{{ ui.rightOutput }}</span>
-            <select v-model="rightOutput">
-              <option>Simplified Chinese</option>
-              <option>Traditional Chinese</option>
-              <option>English</option>
-              <option>Japanese</option>
-            </select>
-          </label>
-
-          <label class="field field-tight">
-            <span>{{ ui.layout }}</span>
-            <select v-model="layout">
-              <option value="vertical">{{ ui.layoutVertical }}</option>
-              <option value="horizontal">{{ ui.layoutHorizontal }}</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>{{ ui.model }}</span>
-            <select v-model="model">
-              <option v-for="modelOption in modelOptions" :key="modelOption" :value="modelOption">
-                {{ modelOption }}
-              </option>
-              <option value="__custom__">{{ ui.customModel }}</option>
-            </select>
-          </label>
-
-          <label class="field field-wide">
-            <span>{{ ui.windowList }}</span>
-            <select v-model="selectedWindowLabel" @change="applySelectedWindow">
-              <option value="">{{ ui.noWindowSelected }}</option>
-              <option v-for="window in windowOptions" :key="window.hwnd" :value="window.label">
-                {{ window.label }}
-              </option>
-            </select>
-          </label>
-
-          <label class="field field-tight">
+        <div class="settings-panel">
+          <h3>{{ ui.translationService }}</h3>
+          <label class="stack-field">
             <span>{{ ui.translator }}</span>
             <select v-model="translator">
               <option>deepseek</option>
@@ -101,33 +102,75 @@
               <option>argos</option>
             </select>
           </label>
+          <button class="square-btn" type="button" @click="showProviderPanel = !showProviderPanel">⚙</button>
+        </div>
 
-          <label class="field field-tight">
-            <span>{{ ui.ocr }}</span>
-            <select v-model="ocrEngine">
-              <option>tesseract</option>
-              <option>openai-vision</option>
+        <div class="settings-panel">
+          <h3>{{ ui.textStyle }}</h3>
+          <div class="font-stepper">
+            <button @click="decreaseFont">A-</button>
+            <input v-model="fontSize" />
+            <button @click="increaseFont">A+</button>
+          </div>
+          <label class="stack-field">
+            <span>{{ ui.fontFamily }}</span>
+            <select v-model="fontFamily">
+              <option>Microsoft YaHei UI</option>
+              <option>SimSun</option>
+              <option>Yu Mincho</option>
+              <option>serif</option>
             </select>
           </label>
         </div>
 
-        <div class="utility-strip">
-          <button class="btn btn-ghost" type="button" @click="showProviderPanel = !showProviderPanel">
-            {{ ui.providerConfigs }}
-          </button>
-          <button class="btn btn-ghost" type="button" @click="showVocabularyPanel = !showVocabularyPanel">
-            {{ ui.vocabulary }}
-          </button>
-          <span class="strip-spacer"></span>
-          <label class="mini-field">
-            <span>{{ ui.fontSize }}</span>
-            <input v-model="fontSize" />
-          </label>
-          <label class="mini-field language-field">
+        <div class="settings-panel">
+          <h3>{{ ui.layoutMode }}</h3>
+          <div class="layout-buttons">
+            <button class="icon-toggle" :class="{ active: layout === 'horizontal' }" @click="layout = 'horizontal'">▦</button>
+            <button class="icon-toggle" :class="{ active: layout === 'vertical' }" @click="layout = 'vertical'">▥</button>
+          </div>
+          <label class="stack-field">
             <span>{{ ui.systemLanguage }}</span>
             <select v-model="systemLanguage">
               <option value="en">English</option>
-              <option value="zh-CN">Simplified Chinese</option>
+              <option value="zh-CN">简体中文</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="settings-panel capture-preview">
+          <h3>{{ ui.subtitleArea }}</h3>
+          <div class="crop-preview">
+            <div class="crop-box"></div>
+          </div>
+          <div class="crop-values">
+            <input v-model="cropLeft" />
+            <input v-model="cropTop" />
+            <input v-model="cropRight" />
+            <input v-model="cropBottom" />
+          </div>
+        </div>
+      </section>
+
+      <section v-if="showDisplayPanel || showProviderPanel" class="config-drawer">
+        <div v-if="showDisplayPanel" class="drawer-grid">
+          <label class="stack-field">
+            <span>{{ ui.leftOutput }}</span>
+            <select v-model="leftOutput">
+              <option>Original OCR</option>
+              <option>Japanese</option>
+              <option>English</option>
+              <option>Simplified Chinese</option>
+              <option>Traditional Chinese</option>
+            </select>
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.rightOutput }}</span>
+            <select v-model="rightOutput">
+              <option>Simplified Chinese</option>
+              <option>Traditional Chinese</option>
+              <option>English</option>
+              <option>Japanese</option>
             </select>
           </label>
           <label class="check-field">
@@ -136,93 +179,67 @@
           </label>
         </div>
 
-        <section v-if="advancedOpen" class="advanced-panel">
-          <div class="advanced-grid">
-            <label class="field field-tight">
-              <span>{{ ui.intervalMs }}</span>
-              <input v-model="intervalMs" />
-            </label>
-            <label class="field field-tight">
-              <span>{{ ui.context }}</span>
-              <input v-model="contextLines" />
-            </label>
-            <label class="field field-tight">
-              <span>{{ ui.stableReads }}</span>
-              <input v-model="stableReads" />
-            </label>
-            <label class="field">
-              <span>{{ ui.apiUrl }}</span>
-              <input v-model="apiUrl" />
-            </label>
-            <label v-if="model === '__custom__'" class="field">
-              <span>{{ ui.customModel }}</span>
-              <input v-model="customModel" placeholder="model-id" />
-            </label>
-            <label class="field field-tight">
-              <span>{{ ui.apiKey }}</span>
-              <input v-model="apiKey" type="password" autocomplete="off" />
-            </label>
-            <label class="field">
-              <span>{{ ui.libreUrl }}</span>
-              <input v-model="libreUrl" />
-            </label>
-            <label class="field field-tight">
-              <span>{{ ui.libreTarget }}</span>
-              <input v-model="libreTarget" />
-            </label>
-          </div>
-
-          <div class="capture-row">
-            <span class="capture-label">{{ ui.captureArea }}</span>
-            <button class="btn btn-ghost" :disabled="isTranslating" type="button" @click="selectCaptureArea">
-              {{ ui.selectArea }}
-            </button>
-            <label class="mini-field"><span>Left</span><input v-model="cropLeft" /></label>
-            <label class="mini-field"><span>Top</span><input v-model="cropTop" /></label>
-            <label class="mini-field"><span>Right</span><input v-model="cropRight" /></label>
-            <label class="mini-field"><span>Bottom</span><input v-model="cropBottom" /></label>
-          </div>
-        </section>
-
-        <section v-if="showProviderPanel" class="mini-panel">
-          <strong>{{ ui.providerConfigs }}</strong>
-          <span>{{ ui.providerHint }}</span>
-        </section>
-
-        <section v-if="showVocabularyPanel" class="mini-panel">
-          <strong>{{ ui.vocabulary }}</strong>
-          <span>{{ vocabularyHint }}</span>
-        </section>
+        <div v-if="showProviderPanel" class="drawer-grid">
+          <label class="stack-field">
+            <span>{{ ui.model }}</span>
+            <select v-model="model">
+              <option v-for="modelOption in modelOptions" :key="modelOption" :value="modelOption">
+                {{ modelOption }}
+              </option>
+              <option value="__custom__">{{ ui.customModel }}</option>
+            </select>
+          </label>
+          <label v-if="model === '__custom__'" class="stack-field">
+            <span>{{ ui.customModel }}</span>
+            <input v-model="customModel" placeholder="model-id" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.apiUrl }}</span>
+            <input v-model="apiUrl" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.apiKey }}</span>
+            <input v-model="apiKey" type="password" autocomplete="off" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.libreUrl }}</span>
+            <input v-model="libreUrl" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.libreTarget }}</span>
+            <input v-model="libreTarget" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.intervalMs }}</span>
+            <input v-model="intervalMs" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.context }}</span>
+            <input v-model="contextLines" />
+          </label>
+          <label class="stack-field">
+            <span>{{ ui.stableReads }}</span>
+            <input v-model="stableReads" />
+          </label>
+        </div>
       </section>
 
-      <section class="reading-stage">
-        <div class="reading-heading">
-          <p class="eyebrow">Bilingual Overlay</p>
-          <h1>{{ ui.stageTitle }}</h1>
-          <p>{{ ui.stageSubtitle }}</p>
-        </div>
-
-        <div class="panel-stack" :class="{ horizontal: layout === 'horizontal' }">
-          <section class="reading-panel">
-            <div class="panel-label">{{ ui.firstPanel }}: {{ leftOutput }}</div>
-            <textarea
-              ref="sourceTextarea"
-              v-model="sourceText"
-              class="panel-surface panel-large editable-panel"
-              :style="panelFontStyle"
-              spellcheck="false"
-            ></textarea>
-          </section>
-
-          <section class="reading-panel">
-            <div class="panel-label">{{ ui.secondPanel }}: {{ rightOutput }}</div>
-            <div class="panel-surface panel-large translated-panel" :style="panelFontStyle">
-              <p>{{ translatedText || ui.emptyTranslation }}</p>
-            </div>
-          </section>
-        </div>
-        <p v-if="statusMessage" class="status-line">{{ statusMessage }}</p>
+      <section class="vocab-drawer">
+        <button class="vocab-toggle" type="button" @click="showVocabularyPanel = !showVocabularyPanel">
+          <span>▰</span>
+          {{ ui.vocabulary }} ({{ collectedCount }})
+          <span class="chevron">{{ showVocabularyPanel ? "⌃" : "⌄" }}</span>
+        </button>
+        <div v-if="showVocabularyPanel" class="vocab-body">{{ vocabularyHint }}</div>
       </section>
+
+      <footer class="status-bar">
+        <span class="connection-dot"></span>
+        <span>{{ statusMessage || ui.ready }}</span>
+        <span>OCR: {{ ui.ready }}</span>
+        <span>{{ ui.translationService }}: {{ translator }}</span>
+        <span class="push-end">{{ ui.versionLatest }}</span>
+      </footer>
     </main>
   </div>
 </template>
@@ -233,32 +250,35 @@ import { invoke } from "@tauri-apps/api/core";
 
 const messages = {
   en: {
-    windowTitle: "Window title",
-    refreshWindows: "Refresh windows",
+    gameWindow: "Game window",
+    refreshWindows: "Refresh",
+    placeBeside: "Place beside",
+    translationOutput: "Translation output",
+    readingDirection: "Reading direction",
     layoutVertical: "Top / Bottom",
     layoutHorizontal: "Left / Right",
     customModel: "Custom model",
     translating: "Translating",
-    start: "Start OCR",
+    start: "Start translation",
     retranslate: "Retranslate",
     stop: "Stop",
-    collectSelection: "Collect Selection",
-    collectCurrent: "Collect Current",
-    hideAdvanced: "Hide Advanced",
-    advanced: "Advanced & Capture",
-    leftOutput: "First area",
-    rightOutput: "Second area",
+    collect: "Collect",
+    copy: "Copy",
+    leftOutput: "Source language",
+    rightOutput: "Translation language",
     layout: "Layout",
     model: "Model",
-    windowList: "Window list",
     noWindowSelected: "Choose a visible game window",
     translator: "Translator",
-    ocr: "OCR",
-    providerConfigs: "Models & Key",
-    vocabulary: "Vocabulary",
+    ocr: "OCR engine",
+    providerConfigs: "Service config",
+    vocabulary: "Vocabulary collection",
     fontSize: "Font size",
-    systemLanguage: "System language",
-    lockCurrentLine: "Lock line",
+    fontFamily: "Font",
+    textStyle: "Text style",
+    layoutMode: "Layout mode",
+    systemLanguage: "UI language",
+    lockCurrentLine: "Lock current line",
     intervalMs: "Interval ms",
     context: "Context",
     stableReads: "Stable reads",
@@ -266,53 +286,56 @@ const messages = {
     apiKey: "API Key",
     libreUrl: "Libre URL",
     libreTarget: "Libre target",
-    captureArea: "Capture ratios",
-    selectArea: "Select area",
-    providerHint: "API keys stay local in this running app. Use environment variables or a local config file for long-term storage.",
-    stageTitle: "Bilingual Reading Stage",
-    stageSubtitle: "Player-first visual novel reading, with language learning support kept close but quiet.",
-    firstPanel: "First panel",
-    secondPanel: "Second panel",
+    selectArea: "Custom area",
+    subtitleArea: "Subtitle area",
+    ocrEngine: "OCR engine",
+    translationService: "Translation service",
     emptyTranslation: "Translation will appear here.",
     ready: "Ready",
     noSource: "No source text to translate.",
     noWindow: "Select or type a game window title first.",
     noSelection: "Select text in the source panel first.",
     collected: "Collected to vocabulary.",
+    copied: "Copied.",
     stopped: "Stopped",
     refreshing: "Refreshing windows...",
     windowsLoaded: "Window list refreshed.",
     selectingArea: "Drag over the game subtitle area...",
     areaUpdated: "Capture area updated.",
+    placeHint: "Use the native window controls to place this beside the game.",
+    versionLatest: "Current version is latest",
     titleWorking: "Translating..."
   },
   "zh-CN": {
-    windowTitle: "窗口标题",
-    refreshWindows: "刷新窗口",
+    gameWindow: "游戏窗口",
+    refreshWindows: "刷新",
+    placeBeside: "置于旁边",
+    translationOutput: "翻译输出",
+    readingDirection: "阅读方向",
     layoutVertical: "上下布局",
     layoutHorizontal: "左右布局",
     customModel: "自定义模型",
     translating: "翻译中",
-    start: "启动 OCR",
+    start: "开始翻译",
     retranslate: "重新翻译",
     stop: "停止",
-    collectSelection: "收藏选中",
-    collectCurrent: "收藏当前",
-    hideAdvanced: "隐藏高级",
-    advanced: "高级与捕获",
-    leftOutput: "第一区域",
-    rightOutput: "第二区域",
+    collect: "收集",
+    copy: "复制",
+    leftOutput: "原文语言",
+    rightOutput: "翻译语言",
     layout: "布局",
     model: "模型",
-    windowList: "窗口列表",
     noWindowSelected: "选择可见游戏窗口",
     translator: "翻译器",
-    ocr: "OCR",
-    providerConfigs: "模型与 Key",
-    vocabulary: "词汇本",
-    fontSize: "字体大小",
-    systemLanguage: "系统语言",
-    lockCurrentLine: "锁定行",
+    ocr: "OCR 引擎",
+    providerConfigs: "服务配置",
+    vocabulary: "词汇收集",
+    fontSize: "字号",
+    fontFamily: "字体",
+    textStyle: "文字",
+    layoutMode: "布局模式",
+    systemLanguage: "界面语言",
+    lockCurrentLine: "锁定当前行",
     intervalMs: "间隔 ms",
     context: "上下文",
     stableReads: "稳定读取",
@@ -320,24 +343,24 @@ const messages = {
     apiKey: "API Key",
     libreUrl: "Libre 地址",
     libreTarget: "Libre 目标",
-    captureArea: "捕获比例",
-    selectArea: "手动选区",
-    providerHint: "API Key 只保存在本次运行界面中。长期保存建议使用环境变量或本地配置文件。",
-    stageTitle: "双语阅读舞台",
-    stageSubtitle: "先保证 galgame 阅读沉浸感，再把语言学习能力放在顺手的位置。",
-    firstPanel: "第一区域",
-    secondPanel: "第二区域",
+    selectArea: "自定义区域",
+    subtitleArea: "字幕区域",
+    ocrEngine: "OCR 引擎",
+    translationService: "翻译服务",
     emptyTranslation: "翻译会显示在这里。",
     ready: "就绪",
     noSource: "没有可翻译的原文。",
     noWindow: "请先选择或输入游戏窗口标题。",
     noSelection: "请先在原文区域选中文本。",
     collected: "已收藏到词汇本。",
+    copied: "已复制。",
     stopped: "已停止",
     refreshing: "正在刷新窗口...",
     windowsLoaded: "窗口列表已刷新。",
     selectingArea: "请在游戏字幕区域拖拽选区...",
     areaUpdated: "捕获区域已更新。",
+    placeHint: "请使用系统窗口功能将本窗口放到游戏旁边。",
+    versionLatest: "当前版本最新",
     titleWorking: "正在翻译..."
   }
 };
@@ -350,20 +373,21 @@ const providerModels = {
   argos: ["local-argos"]
 };
 
-const advancedOpen = ref(false);
 const showProviderPanel = ref(false);
+const showDisplayPanel = ref(false);
 const showVocabularyPanel = ref(false);
 const windowTitle = ref("");
 const selectedWindowLabel = ref("");
 const windowOptions = ref([]);
-const leftOutput = ref("Original OCR");
+const leftOutput = ref("Japanese");
 const rightOutput = ref("Simplified Chinese");
 const layout = ref("horizontal");
 const model = ref("deepseek-v4-flash");
 const customModel = ref("");
 const translator = ref("deepseek");
 const ocrEngine = ref("tesseract");
-const fontSize = ref("18");
+const fontSize = ref("20");
+const fontFamily = ref("Microsoft YaHei UI");
 const systemLanguage = ref("zh-CN");
 const lockCurrentLine = ref(false);
 const intervalMs = ref("1500");
@@ -377,8 +401,8 @@ const cropLeft = ref("0.05");
 const cropTop = ref("0.62");
 const cropRight = ref("0.95");
 const cropBottom = ref("0.95");
-const sourceText = ref("Select a game window, then click Start OCR.\nYou can also paste text here and click Retranslate.");
-const translatedText = ref("");
+const sourceText = ref("「——それでも、\n君と出会えたことは、\n俺にとって、奇跡だった。」");
+const translatedText = ref("「——即使如此，\n能够与你相遇，\n对我来说也是一种奇迹。」");
 const isTranslating = ref(false);
 const statusMessage = ref("");
 const titleDots = ref(0);
@@ -392,7 +416,8 @@ const modelOptions = computed(() => providerModels[translator.value] || provider
 const titleHint = computed(() => `${ui.value.titleWorking}${".".repeat(titleDots.value + 1)}`);
 const vocabularyHint = computed(() => `${collectedCount.value} item(s) collected in this session.`);
 const panelFontStyle = computed(() => ({
-  fontSize: `${Number.parseInt(fontSize.value, 10) || 18}px`
+  fontFamily: fontFamily.value,
+  fontSize: `${Number.parseInt(fontSize.value, 10) || 20}px`
 }));
 
 watch(isTranslating, (active) => {
@@ -443,8 +468,16 @@ function floatValue(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function toggleLayout() {
-  layout.value = layout.value === "vertical" ? "horizontal" : "vertical";
+function togglePlaceHint() {
+  statusMessage.value = ui.value.placeHint;
+}
+
+function increaseFont() {
+  fontSize.value = String((Number.parseInt(fontSize.value, 10) || 20) + 1);
+}
+
+function decreaseFont() {
+  fontSize.value = String(Math.max((Number.parseInt(fontSize.value, 10) || 20) - 1, 10));
 }
 
 function baseRequest() {
@@ -565,6 +598,15 @@ async function runTextTranslation() {
 function stopTranslation() {
   isTranslating.value = false;
   statusMessage.value = ui.value.stopped;
+}
+
+async function copyTranslation() {
+  try {
+    await navigator.clipboard.writeText(translatedText.value || "");
+    statusMessage.value = ui.value.copied;
+  } catch {
+    statusMessage.value = translatedText.value || "";
+  }
 }
 
 async function collectSelection() {
