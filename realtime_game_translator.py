@@ -48,6 +48,19 @@ OUTPUT_LAYOUT_OPTIONS = ("horizontal", "vertical")
 UI_LANGUAGE_OPTIONS = ("auto", "zh-CN", "en")
 OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
+UI_COLORS = {
+    "bg": "#F4EFE6",
+    "panel": "#FBF8F2",
+    "panel_alt": "#F1E6D2",
+    "panel_edge": "#D8C8AE",
+    "accent": "#C27A3A",
+    "accent_soft": "#E8C49A",
+    "ink": "#2B241D",
+    "muted": "#75695D",
+    "teal": "#557C78",
+    "teal_soft": "#DDEAE8",
+    "danger": "#A85A43",
+}
 
 API_PROVIDER_CONFIGS = {
     "openai": {
@@ -99,6 +112,8 @@ UI_STRINGS = {
         "button_stop": "Stop",
         "button_collect_selection": "Collect Selection",
         "button_collect_current": "Collect Current",
+        "button_show_advanced": "Advanced & Capture",
+        "button_hide_advanced": "Hide Advanced",
         "label_ocr": "OCR",
         "label_translator": "Translator",
         "label_libre_url": "Libre URL",
@@ -115,8 +130,14 @@ UI_STRINGS = {
         "label_context": "Context",
         "label_stable_reads": "Stable reads",
         "check_lock_current_line": "Lock current line",
+        "reading_stage_title": "Bilingual Reading Stage",
+        "reading_stage_subtitle": "Keep the story readable first. Original text and translation stay side by side for quick glance reading.",
         "frame_subtitle_crop_area": "Subtitle crop area",
         "button_select_area": "Select area",
+        "crop_left": "Left",
+        "crop_top": "Top",
+        "crop_right": "Right",
+        "crop_bottom": "Bottom",
         "panel_left": "Left",
         "panel_right": "Right",
         "panel_top": "Top",
@@ -203,6 +224,8 @@ UI_STRINGS = {
         "button_stop": "停止",
         "button_collect_selection": "收藏选中文本",
         "button_collect_current": "收藏当前句",
+        "button_show_advanced": "高级与截取",
+        "button_hide_advanced": "收起高级项",
         "label_ocr": "OCR",
         "label_translator": "翻译器",
         "label_libre_url": "Libre 地址",
@@ -219,8 +242,14 @@ UI_STRINGS = {
         "label_context": "上下文",
         "label_stable_reads": "稳定读取次数",
         "check_lock_current_line": "锁定当前句",
+        "reading_stage_title": "双语阅读区",
+        "reading_stage_subtitle": "先保证剧情阅读顺畅，再顺手看原文和译文。原文与翻译并排展示，适合边玩边看。",
         "frame_subtitle_crop_area": "字幕裁剪区域",
         "button_select_area": "选择区域",
+        "crop_left": "左",
+        "crop_top": "上",
+        "crop_right": "右",
+        "crop_bottom": "下",
         "panel_left": "左侧",
         "panel_right": "右侧",
         "panel_top": "上方",
@@ -1081,6 +1110,141 @@ class TranslatorApp:
     def _panel_language_label(self, value: str) -> str:
         return OUTPUT_LANGUAGE_LABELS.get(value, {}).get(self.ui_language, value)
 
+    def _apply_theme(self) -> None:
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        self.root.configure(bg=UI_COLORS["bg"])
+        style.configure(".", background=UI_COLORS["bg"], foreground=UI_COLORS["ink"])
+        style.configure(
+            "Root.TFrame",
+            background=UI_COLORS["bg"],
+        )
+        style.configure(
+            "Card.TFrame",
+            background=UI_COLORS["panel"],
+            relief="flat",
+        )
+        style.configure(
+            "CardAlt.TFrame",
+            background=UI_COLORS["panel_alt"],
+        )
+        style.configure(
+            "Section.TLabelframe",
+            background=UI_COLORS["panel"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "Section.TLabelframe.Label",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["ink"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        style.configure(
+            "ReadPane.TLabelframe",
+            background=UI_COLORS["panel"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "ReadPane.TLabelframe.Label",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["teal"],
+            font=("Microsoft YaHei UI", 10, "bold"),
+        )
+        style.configure(
+            "HeroTitle.TLabel",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["ink"],
+            font=("Microsoft YaHei UI", 12, "bold"),
+        )
+        style.configure(
+            "Muted.TLabel",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["muted"],
+            font=("Microsoft YaHei UI", 9),
+        )
+        style.configure(
+            "Status.TLabel",
+            background=UI_COLORS["panel_alt"],
+            foreground=UI_COLORS["ink"],
+            font=("Microsoft YaHei UI", 9, "bold"),
+            padding=(12, 8),
+        )
+        style.configure(
+            "Accent.TButton",
+            background=UI_COLORS["accent"],
+            foreground="#FFFFFF",
+            bordercolor=UI_COLORS["accent"],
+            focusthickness=0,
+            padding=(12, 7),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", "#AF6B32"), ("pressed", "#9D5F2B")],
+            foreground=[("disabled", "#EEE6DD")],
+        )
+        style.configure(
+            "Secondary.TButton",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["ink"],
+            bordercolor=UI_COLORS["panel_edge"],
+            focusthickness=0,
+            padding=(10, 7),
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[("active", "#F6F0E7"), ("pressed", "#EBDDCA")],
+        )
+        style.configure(
+            "Danger.TButton",
+            background=UI_COLORS["danger"],
+            foreground="#FFFFFF",
+            bordercolor=UI_COLORS["danger"],
+            focusthickness=0,
+            padding=(10, 7),
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", "#95503C"), ("pressed", "#814432")],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground="#FFFDFC",
+            foreground=UI_COLORS["ink"],
+            bordercolor=UI_COLORS["panel_edge"],
+            lightcolor=UI_COLORS["panel_edge"],
+            darkcolor=UI_COLORS["panel_edge"],
+            insertcolor=UI_COLORS["ink"],
+            padding=5,
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground="#FFFDFC",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["ink"],
+            bordercolor=UI_COLORS["panel_edge"],
+            lightcolor=UI_COLORS["panel_edge"],
+            darkcolor=UI_COLORS["panel_edge"],
+            arrowsize=14,
+            padding=4,
+        )
+        style.configure(
+            "TSpinbox",
+            fieldbackground="#FFFDFC",
+            foreground=UI_COLORS["ink"],
+            arrowsize=14,
+        )
+        style.configure(
+            "TCheckbutton",
+            background=UI_COLORS["panel"],
+            foreground=UI_COLORS["ink"],
+        )
+        style.map("TCheckbutton", background=[("active", UI_COLORS["panel"])])
+
     def _on_ui_language_changed(self) -> None:
         selected = self.ui_language_var.get().strip() or DEFAULT_UI_LANGUAGE
         self.ui_language = detect_system_language() if selected == "auto" else selected
@@ -1098,6 +1262,7 @@ class TranslatorApp:
         self.output_frame = None
         self.left_output_frame = None
         self.right_output_frame = None
+        self.reading_splitter = None
         self.left_output = None
         self.right_output = None
         self.window_combo = None
@@ -1114,8 +1279,9 @@ class TranslatorApp:
         self.ui_language_var = tk.StringVar(value=args.ui_language)
         self.ui_language = detect_system_language() if args.ui_language == "auto" else args.ui_language
         self.root.title(self._app_title())
-        self.root.geometry("580x560")
+        self.root.geometry("860x780")
         self.root.attributes("-topmost", True)
+        self._apply_theme()
 
         self.running = False
         self.worker: threading.Thread | None = None
@@ -1176,6 +1342,15 @@ class TranslatorApp:
         self.main_controls: ttk.Frame | None = None
         self.crop_frame: ttk.LabelFrame | None = None
         self.status_label: ttk.Label | None = None
+        self.reading_shell: ttk.Frame | None = None
+        self.reading_header: ttk.Frame | None = None
+        self.reading_splitter: tk.PanedWindow | None = None
+        self.action_bar: ttk.Frame | None = None
+        self.utility_bar: ttk.Frame | None = None
+        self.controls_card: ttk.Frame | None = None
+        self.advanced_toggle_button: ttk.Button | None = None
+        self.advanced_frame: ttk.LabelFrame | None = None
+        self.advanced_visible = False
         self.output_font = tkfont.Font(family=self.output_font_family_var.get(), size=self.output_font_size_var.get())
         self.output_frame: ttk.Frame | None = None
         self.left_output_frame: ttk.LabelFrame | None = None
@@ -1197,155 +1372,205 @@ class TranslatorApp:
         self.output_font_size_var.trace_add("write", lambda *_args: self._apply_output_font())
         self.ui_language_var.trace_add("write", lambda *_args: self._on_ui_language_changed())
 
+    def _toggle_advanced_panel(self) -> None:
+        self.advanced_visible = not self.advanced_visible
+        if self.advanced_frame is None:
+            return
+        if self.advanced_visible:
+            self.advanced_frame.pack(fill="x", pady=(10, 0))
+        else:
+            self.advanced_frame.pack_forget()
+        if self.advanced_toggle_button is not None:
+            self.advanced_toggle_button.configure(
+                text=self._tr("button_hide_advanced") if self.advanced_visible else self._tr("button_show_advanced")
+            )
+
     def _build_ui(self) -> None:
         root = self.root
-        controls = ttk.Frame(root, padding=8)
+        root.configure(bg=UI_COLORS["bg"])
+        shell = ttk.Frame(root, padding=12, style="Root.TFrame")
+        shell.pack(fill="both", expand=True)
+
+        controls = ttk.Frame(shell, padding=12, style="Card.TFrame")
         self.main_controls = controls
-        controls.pack(fill="x")
+        self.controls_card = controls
+        controls.pack(fill="x", pady=(0, 10))
 
-        ttk.Label(controls, text=self._tr("label_window_title")).grid(row=0, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.title_var, width=26).grid(row=0, column=1, sticky="ew", padx=6)
-        ttk.Button(controls, text=self._tr("button_refresh_windows"), command=self.refresh_window_list).grid(row=0, column=2, padx=3)
-        ttk.Button(controls, text=self._tr("button_place_beside"), command=self.place_beside_game).grid(row=0, column=3, padx=3)
+        top_bar = ttk.Frame(controls, style="Card.TFrame")
+        top_bar.pack(fill="x", pady=(0, 10))
+        ttk.Label(top_bar, text=self._tr("label_window_title")).pack(side="left")
+        ttk.Entry(top_bar, textvariable=self.title_var, width=28).pack(side="left", padx=(8, 10))
+        ttk.Button(top_bar, text=self._tr("button_refresh_windows"), command=self.refresh_window_list, style="Secondary.TButton").pack(side="left", padx=(0, 8))
+        ttk.Button(top_bar, text=self._tr("button_place_beside"), command=self.place_beside_game, style="Secondary.TButton").pack(side="left")
 
-        ttk.Label(controls, text=self._tr("label_left_output")).grid(row=1, column=0, sticky="w")
+        action_bar = ttk.Frame(controls, style="Card.TFrame")
+        self.action_bar = action_bar
+        action_bar.pack(fill="x", pady=(0, 10))
+        ttk.Button(action_bar, text=self._tr("button_start"), command=self.start, style="Accent.TButton").pack(side="left")
+        ttk.Button(action_bar, text=self._tr("button_retranslate"), command=self.retranslate_current_text, style="Secondary.TButton").pack(side="left", padx=(8, 8))
+        ttk.Button(action_bar, text=self._tr("button_stop"), command=self.stop, style="Danger.TButton").pack(side="left")
+        ttk.Separator(action_bar, orient="vertical").pack(side="left", fill="y", padx=12)
+        ttk.Button(action_bar, text=self._tr("button_collect_selection"), command=self.collect_selection, style="Secondary.TButton").pack(side="left")
+        ttk.Button(action_bar, text=self._tr("button_collect_current"), command=self.collect_current_pair, style="Secondary.TButton").pack(side="left", padx=(8, 0))
+        self.advanced_toggle_button = ttk.Button(
+            action_bar,
+            text=self._tr("button_show_advanced"),
+            command=self._toggle_advanced_panel,
+            style="Secondary.TButton",
+        )
+        self.advanced_toggle_button.pack(side="right")
+
+        quick_row = ttk.Frame(controls, style="Card.TFrame")
+        quick_row.pack(fill="x")
+
+        ttk.Label(quick_row, text=self._tr("label_left_output")).grid(row=0, column=0, sticky="w")
         ttk.Combobox(
-            controls,
+            quick_row,
             textvariable=self.left_language_var,
             values=OUTPUT_LANGUAGE_OPTIONS,
             width=16,
             state="readonly",
-        ).grid(row=1, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text=self._tr("label_model")).grid(row=1, column=2, sticky="e")
-        self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, width=18)
-        self.model_combo.grid(row=1, column=3, sticky="ew", padx=3)
-        ttk.Label(controls, text=self._tr("label_right_output")).grid(row=1, column=4, sticky="e")
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 14))
+        ttk.Label(quick_row, text=self._tr("label_right_output")).grid(row=0, column=2, sticky="w")
         ttk.Combobox(
-            controls,
+            quick_row,
             textvariable=self.right_language_var,
             values=OUTPUT_LANGUAGE_OPTIONS,
             width=16,
             state="readonly",
-        ).grid(row=1, column=5, sticky="w", padx=3)
-
-        ttk.Label(controls, text=self._tr("label_interval_ms")).grid(row=2, column=0, sticky="w")
-        ttk.Spinbox(controls, from_=500, to=10000, increment=250, textvariable=self.interval_var, width=10).grid(
-            row=2, column=1, sticky="w", padx=6
-        )
-        ttk.Button(controls, text=self._tr("button_start"), command=self.start).grid(row=2, column=2, padx=3)
-        ttk.Button(controls, text=self._tr("button_retranslate"), command=self.retranslate_current_text).grid(row=2, column=3, padx=3, sticky="w")
-        ttk.Button(controls, text=self._tr("button_stop"), command=self.stop).grid(row=2, column=4, padx=3, sticky="w")
-        ttk.Button(controls, text=self._tr("button_collect_selection"), command=self.collect_selection).grid(row=2, column=5, padx=3, sticky="w")
-        ttk.Button(controls, text=self._tr("button_collect_current"), command=self.collect_current_pair).grid(row=2, column=6, padx=3, sticky="w")
-
-        ttk.Label(controls, text=self._tr("label_ocr")).grid(row=3, column=0, sticky="w")
+        ).grid(row=0, column=3, sticky="ew", padx=(8, 14))
+        ttk.Label(quick_row, text=self._tr("label_layout")).grid(row=0, column=4, sticky="w")
         ttk.Combobox(
-            controls,
-            textvariable=self.ocr_engine_var,
-            values=("auto", "openai-vision", "tesseract"),
-            width=16,
-            state="readonly",
-        ).grid(row=3, column=1, sticky="w", padx=6)
-        ttk.Label(controls, text=self._tr("label_translator")).grid(row=3, column=2, sticky="e")
-        ttk.Combobox(
-            controls,
-            textvariable=self.translator_var,
-            values=("argos", "deepseek", "grok", "libretranslate", "openai"),
-            width=16,
-            state="readonly",
-        ).grid(row=3, column=3, sticky="w", padx=3)
-
-        ttk.Label(controls, text=self._tr("label_libre_url")).grid(row=4, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.libre_url_var, width=26).grid(row=4, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text=self._tr("label_libre_target")).grid(row=4, column=2, sticky="e")
-        ttk.Entry(controls, textvariable=self.libre_target_var, width=8).grid(row=4, column=3, sticky="w", padx=3)
-
-        ttk.Label(controls, text=self._tr("label_api_url")).grid(row=5, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.api_url_var, width=32).grid(row=5, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text=self._tr("label_api_key")).grid(row=5, column=2, sticky="e")
-        ttk.Entry(controls, textvariable=self.api_key_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
-        ttk.Button(controls, text=self._tr("button_provider_configs"), command=self.open_provider_config_window).grid(
-            row=5, column=4, padx=(6, 0), sticky="w"
-        )
-        ttk.Button(controls, text=self._tr("button_vocabulary"), command=self.open_vocabulary_window).grid(
-            row=5, column=5, padx=(6, 0), sticky="w"
-        )
-
-        ttk.Label(controls, text=self._tr("label_font")).grid(row=6, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.output_font_family_var, width=26).grid(row=6, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text=self._tr("label_font_size")).grid(row=6, column=2, sticky="e")
-        ttk.Spinbox(controls, from_=8, to=40, increment=1, textvariable=self.output_font_size_var, width=8).grid(
-            row=6, column=3, sticky="w", padx=3
-        )
-        ttk.Label(controls, text=self._tr("label_layout")).grid(row=6, column=4, sticky="e")
-        ttk.Combobox(
-            controls,
+            quick_row,
             textvariable=self.output_layout_var,
             values=OUTPUT_LAYOUT_OPTIONS,
-            width=12,
+            width=10,
             state="readonly",
-        ).grid(row=6, column=5, sticky="w", padx=3)
+        ).grid(row=0, column=5, sticky="w", padx=(8, 14))
+        ttk.Label(quick_row, text=self._tr("label_model")).grid(row=0, column=6, sticky="w")
+        self.model_combo = ttk.Combobox(quick_row, textvariable=self.model_var, width=18)
+        self.model_combo.grid(row=0, column=7, sticky="ew", padx=(8, 0))
 
-        ttk.Label(controls, text=self._tr("label_window_list")).grid(row=7, column=0, sticky="w")
+        meta_row = ttk.Frame(controls, style="Card.TFrame")
+        meta_row.pack(fill="x", pady=(10, 0))
+        ttk.Label(meta_row, text=self._tr("label_window_list")).grid(row=0, column=0, sticky="w")
         self.window_combo = ttk.Combobox(
-            controls,
+            meta_row,
             textvariable=self.window_choice_var,
             values=(),
-            width=42,
+            width=38,
             state="readonly",
         )
-        self.window_combo.grid(row=7, column=1, columnspan=3, sticky="ew", padx=6, pady=(3, 0))
+        self.window_combo.grid(row=0, column=1, sticky="ew", padx=(8, 14))
         self.window_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_window_selected())
-        ttk.Label(controls, text=self._tr("label_system_language")).grid(row=7, column=4, sticky="e")
+        ttk.Label(meta_row, text=self._tr("label_translator")).grid(row=0, column=2, sticky="w")
         ttk.Combobox(
-            controls,
+            meta_row,
+            textvariable=self.translator_var,
+            values=("argos", "deepseek", "grok", "libretranslate", "openai"),
+            width=14,
+            state="readonly",
+        ).grid(row=0, column=3, sticky="w", padx=(8, 14))
+        ttk.Label(meta_row, text=self._tr("label_ocr")).grid(row=0, column=4, sticky="w")
+        ttk.Combobox(
+            meta_row,
+            textvariable=self.ocr_engine_var,
+            values=("auto", "openai-vision", "tesseract"),
+            width=14,
+            state="readonly",
+        ).grid(row=0, column=5, sticky="w", padx=(8, 0))
+
+        utility_row = ttk.Frame(controls, style="Card.TFrame")
+        utility_row.pack(fill="x", pady=(10, 0))
+        ttk.Button(utility_row, text=self._tr("button_provider_configs"), command=self.open_provider_config_window, style="Secondary.TButton").pack(side="left")
+        ttk.Button(utility_row, text=self._tr("button_vocabulary"), command=self.open_vocabulary_window, style="Secondary.TButton").pack(side="left", padx=(8, 0))
+        ttk.Checkbutton(utility_row, text=self._tr("check_lock_current_line"), variable=self.lock_current_line_var).pack(side="right")
+        ttk.Label(utility_row, text=self._tr("label_system_language")).pack(side="right", padx=(0, 8))
+        ttk.Combobox(
+            utility_row,
             textvariable=self.ui_language_var,
             values=UI_LANGUAGE_OPTIONS,
-            width=12,
+            width=10,
             state="readonly",
-        ).grid(row=7, column=5, sticky="w", padx=3, pady=(3, 0))
+        ).pack(side="right", padx=(0, 14))
+        ttk.Label(utility_row, text=self._tr("label_font_size")).pack(side="right", padx=(0, 8))
+        ttk.Spinbox(utility_row, from_=8, to=40, increment=1, textvariable=self.output_font_size_var, width=5).pack(side="right", padx=(0, 14))
+        ttk.Label(utility_row, text=self._tr("label_font")).pack(side="right", padx=(0, 8))
+        ttk.Entry(utility_row, textvariable=self.output_font_family_var, width=18).pack(side="right", padx=(0, 14))
 
-        ttk.Label(controls, text=self._tr("label_context")).grid(row=8, column=0, sticky="w")
-        ttk.Spinbox(controls, from_=0, to=12, increment=1, textvariable=self.context_lines_var, width=8).grid(
-            row=8, column=1, sticky="w", padx=6
+        quick_row.columnconfigure(1, weight=1)
+        quick_row.columnconfigure(3, weight=1)
+        quick_row.columnconfigure(7, weight=1)
+        meta_row.columnconfigure(1, weight=1)
+
+        advanced = ttk.LabelFrame(controls, text=self._tr("frame_subtitle_crop_area"), padding=10, style="Section.TLabelframe")
+        self.advanced_frame = advanced
+
+        ttk.Label(advanced, text=self._tr("label_interval_ms")).grid(row=0, column=0, sticky="w")
+        ttk.Spinbox(advanced, from_=500, to=10000, increment=250, textvariable=self.interval_var, width=10).grid(
+            row=0, column=1, sticky="w", padx=(8, 16)
         )
-        ttk.Label(controls, text=self._tr("label_stable_reads")).grid(row=8, column=2, sticky="e")
-        ttk.Spinbox(controls, from_=1, to=5, increment=1, textvariable=self.stable_reads_var, width=8).grid(
-            row=8, column=3, sticky="w", padx=3
+        ttk.Label(advanced, text=self._tr("label_context")).grid(row=0, column=2, sticky="w")
+        ttk.Spinbox(advanced, from_=0, to=12, increment=1, textvariable=self.context_lines_var, width=10).grid(
+            row=0, column=3, sticky="w", padx=(8, 16)
         )
-        ttk.Checkbutton(controls, text=self._tr("check_lock_current_line"), variable=self.lock_current_line_var).grid(
-            row=8, column=4, columnspan=2, sticky="w", padx=(6, 0)
+        ttk.Label(advanced, text=self._tr("label_stable_reads")).grid(row=0, column=4, sticky="w")
+        ttk.Spinbox(advanced, from_=1, to=5, increment=1, textvariable=self.stable_reads_var, width=10).grid(
+            row=0, column=5, sticky="w", padx=(8, 0)
         )
 
-        crop = ttk.LabelFrame(root, text=self._tr("frame_subtitle_crop_area"), padding=8)
-        self.crop_frame = crop
-        crop.pack(fill="x", padx=8, pady=(0, 8))
-        ttk.Button(crop, text=self._tr("button_select_area"), command=self.select_capture_area).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=(0, 10), pady=(0, 6)
+        reading_shell = ttk.Frame(shell, padding=12, style="Card.TFrame")
+        self.reading_shell = reading_shell
+        reading_shell.pack(fill="both", expand=True, pady=(6, 10))
+
+        reading_header = ttk.Frame(reading_shell, style="Card.TFrame")
+        self.reading_header = reading_header
+        reading_header.pack(fill="x", pady=(0, 10))
+        ttk.Label(reading_header, text=self._tr("reading_stage_title"), style="HeroTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            reading_header,
+            text=self._tr("reading_stage_subtitle"),
+            style="Muted.TLabel",
+            wraplength=640,
+            justify="left",
+        ).pack(anchor="w", pady=(3, 0))
+
+        self.output_frame = ttk.Frame(reading_shell, style="Card.TFrame")
+        self.output_frame.pack(fill="both", expand=True)
+        self._build_output_layout()
+
+        self.crop_frame = advanced
+        ttk.Label(advanced, text=self._tr("label_api_url")).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(advanced, textvariable=self.api_url_var, width=32).grid(row=1, column=1, sticky="ew", padx=(8, 16), pady=(8, 0))
+        ttk.Label(advanced, text=self._tr("label_api_key")).grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(advanced, textvariable=self.api_key_var, width=20).grid(row=1, column=3, sticky="ew", padx=(8, 16), pady=(8, 0))
+
+        ttk.Label(advanced, text=self._tr("label_libre_url")).grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(advanced, textvariable=self.libre_url_var, width=32).grid(row=2, column=1, sticky="ew", padx=(8, 16), pady=(8, 0))
+        ttk.Label(advanced, text=self._tr("label_libre_target")).grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(advanced, textvariable=self.libre_target_var, width=12).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=(8, 0))
+
+        ttk.Button(advanced, text=self._tr("button_select_area"), command=self.select_capture_area, style="Secondary.TButton").grid(
+            row=3, column=0, columnspan=2, sticky="w", pady=(10, 6)
         )
         for index, (label, var) in enumerate(
             [
-                ("Left", self.left_var),
-                ("Top", self.top_var),
-                ("Right", self.right_var),
-                ("Bottom", self.bottom_var),
+                (self._tr("crop_left"), self.left_var),
+                (self._tr("crop_top"), self.top_var),
+                (self._tr("crop_right"), self.right_var),
+                (self._tr("crop_bottom"), self.bottom_var),
             ]
         ):
-            ttk.Label(crop, text=label).grid(row=1, column=index * 2, sticky="e")
-            ttk.Spinbox(crop, from_=0.0, to=1.0, increment=0.01, textvariable=var, width=7).grid(
-                row=1, column=index * 2 + 1, padx=(3, 10)
+            ttk.Label(advanced, text=label).grid(row=4, column=index * 2, sticky="e")
+            ttk.Spinbox(advanced, from_=0.0, to=1.0, increment=0.01, textvariable=var, width=7).grid(
+                row=4, column=index * 2 + 1, padx=(3, 10)
             )
 
-        self.output_frame = ttk.Frame(root)
-        self.output_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self._build_output_layout()
-
-        status = ttk.Label(root, textvariable=self.status_text, anchor="w", padding=(8, 0, 8, 8))
+        status = ttk.Label(shell, textvariable=self.status_text, anchor="w", style="Status.TLabel")
         self.status_label = status
         status.pack(fill="x")
-        controls.columnconfigure(1, weight=1)
-        controls.columnconfigure(3, weight=1)
-        controls.columnconfigure(5, weight=1)
+        advanced.columnconfigure(1, weight=1)
+        advanced.columnconfigure(3, weight=1)
 
     def start(self) -> None:
         if self.running:
@@ -1584,28 +1809,70 @@ class TranslatorApp:
         is_vertical = layout == "vertical"
         left_label = self._panel_language_label(self.left_language_var.get().strip() or DEFAULT_OUTPUT_LEFT_LANGUAGE)
         right_label = self._panel_language_label(self.right_language_var.get().strip() or DEFAULT_OUTPUT_RIGHT_LANGUAGE)
+        orient = "vertical" if is_vertical else "horizontal"
+
+        self.reading_splitter = tk.PanedWindow(
+            self.output_frame,
+            orient=orient,
+            sashwidth=8,
+            bg=UI_COLORS["panel"],
+            bd=0,
+            relief="flat",
+            opaqueresize=True,
+        )
+        self.reading_splitter.pack(fill="both", expand=True)
 
         self.left_output_frame = ttk.LabelFrame(
-            self.output_frame,
+            self.reading_splitter,
             text=f"{self._tr('panel_top') if is_vertical else self._tr('panel_left')}: {left_label}",
             padding=6,
+            style="ReadPane.TLabelframe",
         )
         self.right_output_frame = ttk.LabelFrame(
-            self.output_frame,
+            self.reading_splitter,
             text=f"{self._tr('panel_bottom') if is_vertical else self._tr('panel_right')}: {right_label}",
             padding=6,
+            style="ReadPane.TLabelframe",
         )
 
-        if is_vertical:
-            self.left_output_frame.pack(side="top", fill="both", expand=True, pady=(0, 4))
-            self.right_output_frame.pack(side="top", fill="both", expand=True, pady=(4, 0))
-        else:
-            self.left_output_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
-            self.right_output_frame.pack(side="left", fill="both", expand=True, padx=(4, 0))
+        self.reading_splitter.add(self.left_output_frame, stretch="always", minsize=220)
+        self.reading_splitter.add(self.right_output_frame, stretch="always", minsize=220)
 
-        self.left_output = tk.Text(self.left_output_frame, wrap="word", font=self.output_font, height=11)
+        self.left_output = tk.Text(
+            self.left_output_frame,
+            wrap="word",
+            font=self.output_font,
+            height=11,
+            bg="#FFFDFC",
+            fg=UI_COLORS["ink"],
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            insertbackground=UI_COLORS["ink"],
+            selectbackground=UI_COLORS["accent_soft"],
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["panel_edge"],
+            highlightcolor=UI_COLORS["accent"],
+        )
         self.left_output.pack(fill="both", expand=True)
-        self.right_output = tk.Text(self.right_output_frame, wrap="word", font=self.output_font, height=11)
+        self.right_output = tk.Text(
+            self.right_output_frame,
+            wrap="word",
+            font=self.output_font,
+            height=11,
+            bg="#FFFDFC",
+            fg=UI_COLORS["ink"],
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=12,
+            insertbackground=UI_COLORS["ink"],
+            selectbackground=UI_COLORS["teal_soft"],
+            highlightthickness=1,
+            highlightbackground=UI_COLORS["panel_edge"],
+            highlightcolor=UI_COLORS["teal"],
+        )
         self.right_output.pack(fill="both", expand=True)
 
         self.left_output.insert(
@@ -1621,10 +1888,13 @@ class TranslatorApp:
     def _rebuild_output_layout(self) -> None:
         if self.output_frame is None:
             return
-        if self.left_output_frame is not None:
+        if self.reading_splitter is not None:
+            self.reading_splitter.destroy()
+        elif self.left_output_frame is not None:
             self.left_output_frame.destroy()
-        if self.right_output_frame is not None:
+        elif self.right_output_frame is not None:
             self.right_output_frame.destroy()
+        self.reading_splitter = None
         self.left_output = None
         self.right_output = None
         self._build_output_layout()
