@@ -74,6 +74,26 @@ struct CollectVocabularyRequest {
     tags: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectAreaRequest {
+    window_title: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SelectAreaResponse {
+    cancelled: bool,
+    #[serde(default)]
+    left: f64,
+    #[serde(default)]
+    top: f64,
+    #[serde(default)]
+    right: f64,
+    #[serde(default)]
+    bottom: f64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct BasicOkResponse {
     ok: bool,
@@ -244,13 +264,25 @@ fn collect_vocabulary_command(app: AppHandle, request: CollectVocabularyRequest)
     parse_json(run_python(command)?)
 }
 
+#[tauri::command]
+fn select_area_command(app: AppHandle, request: SelectAreaRequest) -> Result<SelectAreaResponse, String> {
+    let mut command = python_command(&app)?;
+    command
+        .arg("select-area")
+        .arg("--window-title")
+        .arg(&request.window_title);
+
+    parse_json(run_python(command)?)
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             translate_text_command,
             list_windows_command,
             ocr_translate_command,
-            collect_vocabulary_command
+            collect_vocabulary_command,
+            select_area_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

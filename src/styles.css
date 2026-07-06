@@ -43,47 +43,28 @@ textarea {
 }
 
 .app-shell {
-  width: min(1580px, calc(100vw - 28px));
-  min-height: calc(100vh - 28px);
-  margin: 14px auto;
+  width: 100vw;
+  min-height: 100vh;
+  margin: 0;
   overflow: hidden;
-  border: 2px solid rgba(255, 228, 180, 0.45);
-  border-radius: 28px;
+  border: 0;
+  border-radius: 0;
   background:
     linear-gradient(180deg, rgba(255, 251, 242, 0.9), rgba(241, 224, 197, 0.88)),
     repeating-linear-gradient(45deg, rgba(105, 78, 48, 0.06) 0 1px, transparent 1px 12px);
   box-shadow: var(--shadow);
 }
 
-.window-bar {
-  height: 44px;
+.status-ribbon {
+  position: relative;
+  z-index: 1;
+  min-height: 38px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 18px;
-  color: #f5e8d0;
-  background: linear-gradient(180deg, #302921, #181817);
-  border-bottom: 1px solid rgba(255, 230, 192, 0.18);
-}
-
-.app-mark {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: linear-gradient(135deg, #e8b160, #9a562d);
-  color: #fff5df;
-  font-size: 0.78rem;
-  font-weight: 900;
-}
-
-.window-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.94rem;
-  opacity: 0.9;
+  padding: 0 10px 12px;
+  color: #4b392b;
+  font-size: 1rem;
 }
 
 .title-badge {
@@ -97,7 +78,7 @@ textarea {
 
 .window-state {
   margin-left: auto;
-  color: rgba(245, 232, 208, 0.72);
+  color: var(--accent);
   font-size: 0.86rem;
   font-weight: 700;
 }
@@ -150,6 +131,10 @@ textarea {
 .settings-matrix,
 .utility-strip {
   margin-top: 12px;
+}
+
+.status-ribbon + .control-ribbon {
+  margin-top: 0;
 }
 
 .field,
@@ -357,6 +342,13 @@ select {
 .panel-stack.horizontal {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.reading-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .panel-label {
@@ -367,6 +359,7 @@ select {
 }
 
 .panel-surface {
+  flex: 1;
   min-height: 360px;
   padding: 28px 32px;
   border: 1px solid rgba(129, 93, 54, 0.46);
@@ -384,11 +377,13 @@ select {
   resize: vertical;
   color: var(--ink);
   line-height: 1.48;
+  height: 100%;
 }
 
 .translated-panel {
   height: 100%;
   white-space: pre-wrap;
+  overflow: auto;
 }
 
 .translated-panel p {
@@ -417,9 +412,9 @@ select {
 
 @media (max-width: 820px) {
   .app-shell {
-    width: calc(100vw - 12px);
-    margin: 6px auto;
-    border-radius: 18px;
+    width: 100vw;
+    margin: 0;
+    border-radius: 0;
   }
 
   .surface {

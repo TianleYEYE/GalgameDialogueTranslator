@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tkinter as tk
 from datetime import datetime, timezone
 
 import mss
@@ -19,6 +20,7 @@ from realtime_game_translator import (
     preprocess_for_ocr,
     normalize_ocr_text,
     read_text_with_openai,
+    select_region_for_window,
     TranslatorSettings,
     translate_text,
 )
@@ -48,6 +50,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     subparsers.add_parser("list-windows")
 
+    select_area_parser = subparsers.add_parser("select-area")
+    select_area_parser.add_argument("--window-title", default="")
+
     collect_parser = subparsers.add_parser("collect")
     collect_parser.add_argument("--source", required=True)
     collect_parser.add_argument("--translation", default="")
@@ -58,7 +63,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     collect_parser.add_argument("--note", default="")
     collect_parser.add_argument("--tags", default="")
 
-    if argv and argv[0] not in {"translate", "ocr-translate", "list-windows", "collect"}:
+    if argv and argv[0] not in {"translate", "ocr-translate", "list-windows", "select-area", "collect"}:
         argv = ["translate", *argv]
     return parser.parse_args(argv)
 
@@ -136,6 +141,36 @@ def print_json(payload: dict[str, object]) -> None:
         sys.stdout.buffer.flush()
 
 
+def select_area(window_title: str) -> dict[str, object]:
+    window = find_window(window_title)
+    if window is None:
+        raise RuntimeError("Window not found")
+
+    root = tk.Tk()
+    root.withdraw()
+    result: dict[str, object] = {"cancelled": True}
+
+    def apply_region(region: tuple[float, float, float, float]) -> None:
+        nonlocal result
+        left, top, right, bottom = region
+        result = {
+            "cancelled": False,
+            "left": round(left, 3),
+            "top": round(top, 3),
+            "right": round(right, 3),
+            "bottom": round(bottom, 3),
+        }
+        root.quit()
+
+    def cancel_region() -> None:
+        root.quit()
+
+    select_region_for_window(root, window, apply_region, cancel_region)
+    root.mainloop()
+    root.destroy()
+    return result
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     command = args.command or "translate"
@@ -149,6 +184,10 @@ def main(argv: list[str]) -> int:
                 ]
             }
         )
+        return 0
+
+    if command == "select-area":
+        print_json(select_area(args.window_title))
         return 0
 
     if command == "collect":

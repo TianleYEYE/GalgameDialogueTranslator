@@ -1,16 +1,13 @@
 <template>
   <div class="app-shell">
-    <header class="window-bar">
-      <div class="app-mark">G</div>
-      <div class="window-title">
-        Game Dialogue Translator
-        <span v-if="isTranslating" class="title-badge">{{ titleHint }}</span>
-      </div>
-      <div class="window-state">{{ statusMessage || ui.ready }}</div>
-    </header>
-
     <main class="surface">
       <section class="control-card">
+        <div class="status-ribbon">
+          <strong>Game Dialogue Translator</strong>
+          <span v-if="isTranslating" class="title-badge">{{ titleHint }}</span>
+          <span class="window-state">{{ statusMessage || ui.ready }}</span>
+        </div>
+
         <div class="control-ribbon">
           <label class="field field-window">
             <span>{{ ui.windowTitle }}</span>
@@ -177,6 +174,9 @@
 
           <div class="capture-row">
             <span class="capture-label">{{ ui.captureArea }}</span>
+            <button class="btn btn-ghost" :disabled="isTranslating" type="button" @click="selectCaptureArea">
+              {{ ui.selectArea }}
+            </button>
             <label class="mini-field"><span>Left</span><input v-model="cropLeft" /></label>
             <label class="mini-field"><span>Top</span><input v-model="cropTop" /></label>
             <label class="mini-field"><span>Right</span><input v-model="cropRight" /></label>
@@ -267,6 +267,7 @@ const messages = {
     libreUrl: "Libre URL",
     libreTarget: "Libre target",
     captureArea: "Capture ratios",
+    selectArea: "Select area",
     providerHint: "API keys stay local in this running app. Use environment variables or a local config file for long-term storage.",
     stageTitle: "Bilingual Reading Stage",
     stageSubtitle: "Player-first visual novel reading, with language learning support kept close but quiet.",
@@ -281,6 +282,8 @@ const messages = {
     stopped: "Stopped",
     refreshing: "Refreshing windows...",
     windowsLoaded: "Window list refreshed.",
+    selectingArea: "Drag over the game subtitle area...",
+    areaUpdated: "Capture area updated.",
     titleWorking: "Translating..."
   },
   "zh-CN": {
@@ -318,6 +321,7 @@ const messages = {
     libreUrl: "Libre 地址",
     libreTarget: "Libre 目标",
     captureArea: "捕获比例",
+    selectArea: "手动选区",
     providerHint: "API Key 只保存在本次运行界面中。长期保存建议使用环境变量或本地配置文件。",
     stageTitle: "双语阅读舞台",
     stageSubtitle: "先保证 galgame 阅读沉浸感，再把语言学习能力放在顺手的位置。",
@@ -332,6 +336,8 @@ const messages = {
     stopped: "已停止",
     refreshing: "正在刷新窗口...",
     windowsLoaded: "窗口列表已刷新。",
+    selectingArea: "请在游戏字幕区域拖拽选区...",
+    areaUpdated: "捕获区域已更新。",
     titleWorking: "正在翻译..."
   }
 };
@@ -505,6 +511,33 @@ async function startOcrTranslation() {
     translatedText.value = response.translation || "";
     statusMessage.value = ui.value.ready;
   });
+}
+
+async function selectCaptureArea() {
+  if (!windowTitle.value.trim()) {
+    statusMessage.value = ui.value.noWindow;
+    return;
+  }
+
+  statusMessage.value = ui.value.selectingArea;
+  try {
+    const response = await invoke("select_area_command", {
+      request: {
+        windowTitle: windowTitle.value.trim()
+      }
+    });
+    if (response.cancelled) {
+      statusMessage.value = ui.value.stopped;
+      return;
+    }
+    cropLeft.value = String(response.left);
+    cropTop.value = String(response.top);
+    cropRight.value = String(response.right);
+    cropBottom.value = String(response.bottom);
+    statusMessage.value = ui.value.areaUpdated;
+  } catch (error) {
+    statusMessage.value = String(error || "Failed to select area");
+  }
 }
 
 async function runTextTranslation() {
