@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from tkinter import messagebox, ttk
@@ -22,17 +23,15 @@ import win32gui
 from PIL import Image, ImageOps
 
 
-DEFAULT_OPENAI_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "OpenAI Key.txt")
-DEFAULT_DEEPSEEK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Deepseek Key.txt")
-DEFAULT_GROK_KEY_FILE = os.path.join(os.path.expanduser("~"), "Desktop", "Grok Key.txt")
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+DEFAULT_OUTPUT_FONT_FAMILY = "Microsoft YaHei UI"
+DEFAULT_OUTPUT_FONT_SIZE = 13
 OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
 API_PROVIDER_CONFIGS = {
     "openai": {
         "base_url": "https://api.openai.com/v1",
-        "key_file": DEFAULT_OPENAI_KEY_FILE,
         "models": (
             "gpt-5.2",
             "gpt-5-mini",
@@ -48,12 +47,10 @@ API_PROVIDER_CONFIGS = {
     },
     "deepseek": {
         "base_url": "https://api.deepseek.com",
-        "key_file": DEFAULT_DEEPSEEK_KEY_FILE,
         "models": ("deepseek-v4-flash", "deepseek-v4-pro"),
     },
     "grok": {
         "base_url": "https://api.x.ai/v1",
-        "key_file": DEFAULT_GROK_KEY_FILE,
         "models": ("grok-4", "grok-4.20-reasoning", "grok-4-fast", "grok-3", "grok-3-mini"),
     },
 }
@@ -343,8 +340,8 @@ def preprocess_for_ocr(image: Image.Image) -> Image.Image:
     return image.point(lambda px: 255 if px > 150 else 0)
 
 
-def translate_with_openai(text: str, target_language: str, model: str, base_url: str, api_key_file: str) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip() or read_secret_from_file(api_key_file)
+def translate_with_openai(text: str, target_language: str, model: str, base_url: str, api_key: str) -> str:
+    api_key = resolve_api_key(api_key, "OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
     if not api_key:
         return "未设置 OPENAI_API_KEY。OCR 原文：\n" + text
 
@@ -427,6 +424,25 @@ def read_secret_from_file(path: str) -> str:
         return ""
 
 
+def resolve_api_key(explicit_value: str, env_var: str, legacy_file_env_var: str = "") -> str:
+    value = explicit_value.strip()
+    if value:
+        if os.path.isfile(value):
+            file_secret = read_secret_from_file(value)
+            if file_secret:
+                return file_secret
+        return value
+
+    env_value = os.environ.get(env_var, "").strip()
+    if env_value:
+        return env_value
+
+    if legacy_file_env_var:
+        return read_secret_from_file(os.environ.get(legacy_file_env_var, "").strip())
+
+    return ""
+
+
 def translate_with_argos(text: str, target_language: str) -> str:
     try:
         import argostranslate.translate
@@ -461,11 +477,12 @@ def translate_with_chat_completions(
     target_language: str,
     model: str,
     base_url: str,
-    api_key_file: str,
+    api_key: str,
     api_key_env: str,
+    legacy_file_env_var: str,
     work_context: str = "",
 ) -> str:
-    api_key = os.environ.get(api_key_env, "").strip() or read_secret_from_file(api_key_file)
+    api_key = resolve_api_key(api_key, api_key_env, legacy_file_env_var)
     if not api_key:
         return f"{provider_name} API key is missing. OCR text:\n{text}"
 
@@ -522,7 +539,7 @@ def translate_with_deepseek(
     target_language: str,
     model: str,
     base_url: str,
-    api_key_file: str,
+    api_key: str,
     work_context: str = "",
 ) -> str:
     return translate_with_chat_completions(
@@ -532,8 +549,9 @@ def translate_with_deepseek(
         target_language,
         model,
         base_url,
-        api_key_file,
+        api_key,
         "DEEPSEEK_API_KEY",
+        "DEEPSEEK_API_KEY_FILE",
         work_context,
     )
 
@@ -544,7 +562,7 @@ def translate_with_grok(
     target_language: str,
     model: str,
     base_url: str,
-    api_key_file: str,
+    api_key: str,
     work_context: str = "",
 ) -> str:
     return translate_with_chat_completions(
@@ -554,8 +572,9 @@ def translate_with_grok(
         target_language,
         model,
         base_url,
-        api_key_file,
+        api_key,
         "XAI_API_KEY",
+        "GROK_API_KEY_FILE",
         work_context,
     )
 
@@ -573,7 +592,7 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
             args.target_language,
             args.model,
             args.api_url or args.deepseek_url,
-            args.api_key_file or args.deepseek_api_key_file,
+            args.api_key or args.deepseek_api_key,
             work_context,
         )
     if args.translator == "grok":
@@ -583,7 +602,7 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
             args.target_language,
             args.model,
             args.api_url or args.grok_url,
-            args.api_key_file or args.grok_api_key_file,
+            args.api_key or args.grok_api_key,
             work_context,
         )
     return translate_with_openai(
@@ -591,7 +610,7 @@ def translate_text(text: str, args: "TranslatorSettings", context_lines: list[st
         args.target_language,
         args.model,
         args.api_url or API_PROVIDER_CONFIGS["openai"]["base_url"],
-        args.api_key_file or API_PROVIDER_CONFIGS["openai"]["key_file"],
+        args.api_key,
     )
 
 
@@ -604,12 +623,12 @@ class TranslatorSettings:
     libre_target: str
     deepseek_model: str
     deepseek_url: str
-    deepseek_api_key_file: str
+    deepseek_api_key: str
     grok_model: str
     grok_url: str
-    grok_api_key_file: str
+    grok_api_key: str
     api_url: str
-    api_key_file: str
+    api_key: str
     context_lines: int
     stable_reads: int
 
@@ -619,9 +638,9 @@ def translate_image_with_openai(
     target_language: str,
     model: str,
     base_url: str,
-    api_key_file: str,
+    api_key: str,
 ) -> tuple[str, str]:
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip() or read_secret_from_file(api_key_file)
+    api_key = resolve_api_key(api_key, "OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
     if not api_key:
         return "", "未设置 OPENAI_API_KEY，且未检测到本地 Tesseract OCR。"
 
@@ -704,17 +723,19 @@ class TranslatorApp:
         self.libre_target_var = tk.StringVar(value=args.libre_target)
         self.deepseek_model_var = tk.StringVar(value=args.deepseek_model)
         self.deepseek_url_var = tk.StringVar(value=args.deepseek_url)
-        self.deepseek_api_key_file_var = tk.StringVar(value=args.deepseek_api_key_file)
+        self.deepseek_api_key_var = tk.StringVar(value=args.deepseek_api_key)
         self.grok_model_var = tk.StringVar(value=args.grok_model)
         self.grok_url_var = tk.StringVar(value=args.grok_url)
-        self.grok_api_key_file_var = tk.StringVar(value=args.grok_api_key_file)
+        self.grok_api_key_var = tk.StringVar(value=args.grok_api_key)
         initial_api_url = args.api_url or self._default_api_url(args.translator)
-        initial_api_key_file = args.api_key_file or self._default_api_key_file(args.translator)
+        initial_api_key = args.api_key or self._default_api_key(args.translator)
         self.api_url_var = tk.StringVar(value=initial_api_url)
-        self.api_key_file_var = tk.StringVar(value=initial_api_key_file)
+        self.api_key_var = tk.StringVar(value=initial_api_key)
         self.context_lines_var = tk.IntVar(value=args.context_lines)
         self.stable_reads_var = tk.IntVar(value=args.stable_reads)
         self.interval_var = tk.IntVar(value=args.interval_ms)
+        self.output_font_family_var = tk.StringVar(value=args.font_family)
+        self.output_font_size_var = tk.IntVar(value=args.font_size)
         self.left_var = tk.DoubleVar(value=args.left)
         self.top_var = tk.DoubleVar(value=args.top)
         self.right_var = tk.DoubleVar(value=args.right)
@@ -731,12 +752,15 @@ class TranslatorApp:
         self.current_work_context_key = ""
         self.window_combo: ttk.Combobox | None = None
         self.model_combo: ttk.Combobox | None = None
+        self.output_font = tkfont.Font(family=self.output_font_family_var.get(), size=self.output_font_size_var.get())
 
         self._build_ui()
         self.refresh_window_list()
         self._sync_api_provider_fields()
         self.translator_var.trace_add("write", lambda *_args: self._on_provider_changed())
         self.api_url_var.trace_add("write", lambda *_args: self._on_api_url_changed())
+        self.output_font_family_var.trace_add("write", lambda *_args: self._apply_output_font())
+        self.output_font_size_var.trace_add("write", lambda *_args: self._apply_output_font())
 
     def _build_ui(self) -> None:
         root = self.root
@@ -785,10 +809,17 @@ class TranslatorApp:
 
         ttk.Label(controls, text="API URL").grid(row=5, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.api_url_var, width=32).grid(row=5, column=1, sticky="ew", padx=6)
-        ttk.Label(controls, text="Key file").grid(row=5, column=2, sticky="e")
-        ttk.Entry(controls, textvariable=self.api_key_file_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
+        ttk.Label(controls, text="API Key").grid(row=5, column=2, sticky="e")
+        ttk.Entry(controls, textvariable=self.api_key_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
 
-        ttk.Label(controls, text="Window list").grid(row=6, column=0, sticky="w")
+        ttk.Label(controls, text="Font").grid(row=6, column=0, sticky="w")
+        ttk.Entry(controls, textvariable=self.output_font_family_var, width=26).grid(row=6, column=1, sticky="ew", padx=6)
+        ttk.Label(controls, text="Font size").grid(row=6, column=2, sticky="e")
+        ttk.Spinbox(controls, from_=8, to=40, increment=1, textvariable=self.output_font_size_var, width=8).grid(
+            row=6, column=3, sticky="w", padx=3
+        )
+
+        ttk.Label(controls, text="Window list").grid(row=7, column=0, sticky="w")
         self.window_combo = ttk.Combobox(
             controls,
             textvariable=self.window_choice_var,
@@ -796,16 +827,16 @@ class TranslatorApp:
             width=42,
             state="readonly",
         )
-        self.window_combo.grid(row=6, column=1, columnspan=3, sticky="ew", padx=6, pady=(3, 0))
+        self.window_combo.grid(row=7, column=1, columnspan=3, sticky="ew", padx=6, pady=(3, 0))
         self.window_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_window_selected())
 
-        ttk.Label(controls, text="Context").grid(row=7, column=0, sticky="w")
+        ttk.Label(controls, text="Context").grid(row=8, column=0, sticky="w")
         ttk.Spinbox(controls, from_=0, to=12, increment=1, textvariable=self.context_lines_var, width=8).grid(
-            row=7, column=1, sticky="w", padx=6
+            row=8, column=1, sticky="w", padx=6
         )
-        ttk.Label(controls, text="Stable reads").grid(row=7, column=2, sticky="e")
+        ttk.Label(controls, text="Stable reads").grid(row=8, column=2, sticky="e")
         ttk.Spinbox(controls, from_=1, to=5, increment=1, textvariable=self.stable_reads_var, width=8).grid(
-            row=7, column=3, sticky="w", padx=3
+            row=8, column=3, sticky="w", padx=3
         )
 
         crop = ttk.LabelFrame(root, text="Subtitle crop area", padding=8)
@@ -826,7 +857,7 @@ class TranslatorApp:
                 row=1, column=index * 2 + 1, padx=(3, 10)
             )
 
-        self.output = tk.Text(root, wrap="word", font=("Microsoft YaHei UI", 13), height=11)
+        self.output = tk.Text(root, wrap="word", font=self.output_font, height=11)
         self.output.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         self.output.insert(
             "1.0",
@@ -913,14 +944,13 @@ class TranslatorApp:
     def _default_api_url(self, provider: str) -> str:
         return str(API_PROVIDER_CONFIGS.get(provider, {}).get("base_url", ""))
 
-    def _default_api_key_file(self, provider: str) -> str:
-        return str(API_PROVIDER_CONFIGS.get(provider, {}).get("key_file", ""))
+    def _default_api_key(self, provider: str) -> str:
+        return ""
 
     def _on_provider_changed(self) -> None:
         provider = self.translator_var.get().strip()
         if provider in API_PROVIDER_CONFIGS:
             self.api_url_var.set(self._default_api_url(provider))
-            self.api_key_file_var.set(self._default_api_key_file(provider))
         self._sync_api_provider_fields()
 
     def _on_api_url_changed(self) -> None:
@@ -938,8 +968,11 @@ class TranslatorApp:
             self.model_combo.configure(state="readonly" if model_values else "normal")
         if model_values and self.model_var.get() not in model_values:
             self.model_var.set(model_values[0])
-        if provider in API_PROVIDER_CONFIGS and not self.api_key_file_var.get().strip():
-            self.api_key_file_var.set(self._default_api_key_file(provider))
+
+    def _apply_output_font(self) -> None:
+        family = self.output_font_family_var.get().strip() or DEFAULT_OUTPUT_FONT_FAMILY
+        size = max(self.output_font_size_var.get(), 8)
+        self.output_font.configure(family=family, size=size)
 
     def _set_output(self, text: str) -> None:
         if text == self.last_displayed_translation:
@@ -1038,7 +1071,7 @@ class TranslatorApp:
                 self.target_language_var.get().strip() or "Simplified Chinese",
                 self.model_var.get().strip() or "gpt-4o-mini",
                 self.api_url_var.get().strip() or API_PROVIDER_CONFIGS["openai"]["base_url"],
-                self.api_key_file_var.get().strip() or API_PROVIDER_CONFIGS["openai"]["key_file"],
+                self.api_key_var.get().strip(),
             )
         return "", "未知识别方式。"
 
@@ -1051,12 +1084,12 @@ class TranslatorApp:
             libre_target=self.libre_target_var.get().strip() or "zh-Hans",
             deepseek_model=self.deepseek_model_var.get().strip() or "deepseek-v4-flash",
             deepseek_url=self.deepseek_url_var.get().strip() or "https://api.deepseek.com",
-            deepseek_api_key_file=self.deepseek_api_key_file_var.get().strip() or DEFAULT_DEEPSEEK_KEY_FILE,
+            deepseek_api_key=self.deepseek_api_key_var.get().strip(),
             grok_model=self.grok_model_var.get().strip() or "grok-4",
             grok_url=self.grok_url_var.get().strip() or "https://api.x.ai/v1",
-            grok_api_key_file=self.grok_api_key_file_var.get().strip() or DEFAULT_GROK_KEY_FILE,
+            grok_api_key=self.grok_api_key_var.get().strip(),
             api_url=self.api_url_var.get().strip(),
-            api_key_file=self.api_key_file_var.get().strip(),
+            api_key=self.api_key_var.get().strip(),
             context_lines=max(self.context_lines_var.get(), 0),
             stable_reads=max(self.stable_reads_var.get(), 1),
         )
@@ -1140,9 +1173,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="DeepSeek API base URL.",
     )
     parser.add_argument(
+        "--deepseek-api-key",
         "--deepseek-api-key-file",
-        default=os.environ.get("DEEPSEEK_API_KEY_FILE", DEFAULT_DEEPSEEK_KEY_FILE),
-        help="Path to a text file containing the DeepSeek API key.",
+        dest="deepseek_api_key",
+        default="",
+        help="DeepSeek API key. A legacy text-file path is still accepted for compatibility.",
     )
     parser.add_argument(
         "--grok-model",
@@ -1155,9 +1190,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Grok/xAI API base URL.",
     )
     parser.add_argument(
+        "--grok-api-key",
         "--grok-api-key-file",
-        default=os.environ.get("GROK_API_KEY_FILE", DEFAULT_GROK_KEY_FILE),
-        help="Path to a text file containing the xAI API key.",
+        dest="grok_api_key",
+        default="",
+        help="xAI API key. A legacy text-file path is still accepted for compatibility.",
     )
     parser.add_argument(
         "--api-url",
@@ -1165,13 +1202,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Unified chat-completions API base URL. Recognizes DeepSeek and xAI/Grok.",
     )
     parser.add_argument(
+        "--api-key",
         "--api-key-file",
-        default=os.environ.get("TRANSLATION_API_KEY_FILE", ""),
-        help="Unified API key file for DeepSeek or xAI/Grok.",
+        dest="api_key",
+        default="",
+        help="Unified API key for the selected online provider. A legacy text-file path is still accepted.",
     )
     parser.add_argument("--context-lines", type=int, default=6, help="Recent OCR lines to send as translation context.")
     parser.add_argument("--stable-reads", type=int, default=3, help="OCR must match this many times before refresh.")
     parser.add_argument("--interval-ms", type=int, default=1500, help="OCR polling interval in milliseconds.")
+    parser.add_argument(
+        "--font-family",
+        default=os.environ.get("TRANSLATION_FONT_FAMILY", DEFAULT_OUTPUT_FONT_FAMILY),
+        help="Font family used for translated text display.",
+    )
+    parser.add_argument(
+        "--font-size",
+        type=int,
+        default=int(os.environ.get("TRANSLATION_FONT_SIZE", str(DEFAULT_OUTPUT_FONT_SIZE))),
+        help="Font size used for translated text display.",
+    )
     parser.add_argument("--left", type=float, default=0.05, help="Subtitle crop left ratio.")
     parser.add_argument("--top", type=float, default=0.62, help="Subtitle crop top ratio.")
     parser.add_argument("--right", type=float, default=0.95, help="Subtitle crop right ratio.")

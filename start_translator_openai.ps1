@@ -9,10 +9,7 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = 'python'
 }
 
-$KeyFile = $env:OPENAI_API_KEY_FILE
-if (-not $KeyFile) {
-    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\OpenAI Key.txt'
-}
+$ApiKey = $env:OPENAI_API_KEY
 
 & $Python .\realtime_game_translator.py `
     --ocr-engine tesseract `
@@ -20,6 +17,6 @@ if (-not $KeyFile) {
     --target-language "Simplified Chinese" `
     --model "gpt-5-mini" `
     --api-url "https://api.openai.com/v1" `
-    --api-key-file $KeyFile `
+    --api-key $ApiKey `
     --context-lines 6 `
     --stable-reads 3

@@ -9,10 +9,7 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = 'python'
 }
 
-$KeyFile = $env:GROK_API_KEY_FILE
-if (-not $KeyFile) {
-    $KeyFile = Join-Path $env:USERPROFILE 'Desktop\Grok Key.txt'
-}
+$ApiKey = $env:XAI_API_KEY
 
 & $Python .\realtime_game_translator.py `
     --ocr-engine tesseract `
@@ -20,6 +17,6 @@ if (-not $KeyFile) {
     --target-language "Simplified Chinese" `
     --model "grok-4" `
     --api-url "https://api.x.ai/v1" `
-    --api-key-file $KeyFile `
+    --api-key $ApiKey `
     --context-lines 6 `
     --stable-reads 2
