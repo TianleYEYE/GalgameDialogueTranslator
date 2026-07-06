@@ -27,6 +27,20 @@ DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 DEFAULT_OUTPUT_FONT_FAMILY = "Microsoft YaHei UI"
 DEFAULT_OUTPUT_FONT_SIZE = 13
 LOCAL_CONFIG_FILENAME = "translator_settings.json"
+ORIGINAL_OCR_LANGUAGE = "Original OCR"
+DEFAULT_OUTPUT_LEFT_LANGUAGE = ORIGINAL_OCR_LANGUAGE
+DEFAULT_OUTPUT_RIGHT_LANGUAGE = "Simplified Chinese"
+DEFAULT_OUTPUT_LAYOUT = "horizontal"
+BASE_WINDOW_TITLE = "Game Dialogue Translator"
+OUTPUT_LANGUAGE_OPTIONS = (
+    ORIGINAL_OCR_LANGUAGE,
+    "Simplified Chinese",
+    "Traditional Chinese",
+    "Japanese",
+    "English",
+    "Korean",
+)
+OUTPUT_LAYOUT_OPTIONS = ("horizontal", "vertical")
 OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
@@ -390,6 +404,63 @@ def translate_with_openai(text: str, target_language: str, model: str, base_url:
     return "\n".join(chunks).strip() or "翻译返回为空。"
 
 
+def read_text_with_openai(image: Image.Image, model: str, base_url: str, api_key: str) -> str:
+    api_key = resolve_api_key(api_key, "OPENAI_API_KEY", "OPENAI_API_KEY_FILE")
+    if not api_key:
+        return ""
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    image_data = base64.b64encode(buffer.getvalue()).decode("ascii")
+    payload = {
+        "model": model,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "Read only the English dialogue text from this visual novel screenshot crop. "
+                            "Return the extracted text only, with natural line breaks. "
+                            "If there is no readable dialogue, return an empty string."
+                        ),
+                    },
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:image/png;base64,{image_data}",
+                    },
+                ],
+            }
+        ],
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = request.Request(
+        base_url.rstrip("/") + "/responses",
+        data=data,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=45) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return ""
+
+    if body.get("output_text"):
+        return normalize_ocr_text(str(body["output_text"]))
+
+    chunks: list[str] = []
+    for item in body.get("output", []):
+        for content in item.get("content", []):
+            if content.get("type") in {"output_text", "text"} and content.get("text"):
+                chunks.append(str(content["text"]))
+    return normalize_ocr_text("\n".join(chunks).strip())
+
+
 def translate_with_libretranslate(text: str, target_language: str, endpoint: str) -> str:
     payload = {
         "q": text,
@@ -636,6 +707,7 @@ class TranslatorSettings:
     api_key: str
     context_lines: int
     stable_reads: int
+    output_layout: str
     font_family: str
     font_size: int
     left: float
@@ -732,7 +804,7 @@ def save_local_settings(settings: dict[str, object]) -> None:
 class TranslatorApp:
     def __init__(self, root: tk.Tk, args: argparse.Namespace) -> None:
         self.root = root
-        self.root.title("Game Dialogue Translator")
+        self.root.title(BASE_WINDOW_TITLE)
         self.root.geometry("580x560")
         self.root.attributes("-topmost", True)
 
@@ -742,10 +814,12 @@ class TranslatorApp:
         self.last_ocr_text = ""
         self.translation_cache: dict[str, str] = {}
         self.status_text = tk.StringVar(value="Ready")
+        self.title_status_text = "Ready"
         self.config_path = local_config_path()
 
         self.title_var = tk.StringVar(value=args.title)
-        self.target_language_var = tk.StringVar(value=args.target_language)
+        self.left_language_var = tk.StringVar(value=args.left_language)
+        self.right_language_var = tk.StringVar(value=args.right_language)
         self.openai_model_var = tk.StringVar(value=args.openai_model)
         self.openai_url_var = tk.StringVar(value=args.openai_url)
         self.openai_api_key_var = tk.StringVar(value=args.openai_api_key)
@@ -767,6 +841,7 @@ class TranslatorApp:
         self.context_lines_var = tk.IntVar(value=args.context_lines)
         self.stable_reads_var = tk.IntVar(value=args.stable_reads)
         self.interval_var = tk.IntVar(value=args.interval_ms)
+        self.output_layout_var = tk.StringVar(value=args.output_layout)
         self.output_font_family_var = tk.StringVar(value=args.font_family)
         self.output_font_size_var = tk.IntVar(value=args.font_size)
         self.left_var = tk.DoubleVar(value=args.left)
@@ -776,7 +851,8 @@ class TranslatorApp:
         self.pending_ocr_text = ""
         self.pending_ocr_count = 0
         self.last_translated_ocr_text = ""
-        self.last_displayed_translation = ""
+        self.last_displayed_left_text = ""
+        self.last_displayed_right_text = ""
         self.recent_source_lines: list[str] = []
         self.window_choice_var = tk.StringVar(value="")
         self.window_choices: dict[str, WindowInfo] = {}
@@ -788,6 +864,11 @@ class TranslatorApp:
         self.model_combo: ttk.Combobox | None = None
         self.provider_config_window: tk.Toplevel | None = None
         self.output_font = tkfont.Font(family=self.output_font_family_var.get(), size=self.output_font_size_var.get())
+        self.output_frame: ttk.Frame | None = None
+        self.left_output_frame: ttk.LabelFrame | None = None
+        self.right_output_frame: ttk.LabelFrame | None = None
+        self.left_output: tk.Text | None = None
+        self.right_output: tk.Text | None = None
 
         self._build_ui()
         if self.current_provider in API_PROVIDER_CONFIGS:
@@ -796,6 +877,9 @@ class TranslatorApp:
         self._sync_api_provider_fields()
         self.translator_var.trace_add("write", lambda *_args: self._on_provider_changed())
         self.api_url_var.trace_add("write", lambda *_args: self._on_api_url_changed())
+        self.left_language_var.trace_add("write", lambda *_args: self._refresh_outputs_for_current_text())
+        self.right_language_var.trace_add("write", lambda *_args: self._refresh_outputs_for_current_text())
+        self.output_layout_var.trace_add("write", lambda *_args: self._rebuild_output_layout())
         self.output_font_family_var.trace_add("write", lambda *_args: self._apply_output_font())
         self.output_font_size_var.trace_add("write", lambda *_args: self._apply_output_font())
 
@@ -809,19 +893,33 @@ class TranslatorApp:
         ttk.Button(controls, text="Refresh windows", command=self.refresh_window_list).grid(row=0, column=2, padx=3)
         ttk.Button(controls, text="Place beside", command=self.place_beside_game).grid(row=0, column=3, padx=3)
 
-        ttk.Label(controls, text="Target language").grid(row=1, column=0, sticky="w")
-        ttk.Entry(controls, textvariable=self.target_language_var, width=14).grid(row=1, column=1, sticky="w", padx=6)
+        ttk.Label(controls, text="Left output").grid(row=1, column=0, sticky="w")
+        ttk.Combobox(
+            controls,
+            textvariable=self.left_language_var,
+            values=OUTPUT_LANGUAGE_OPTIONS,
+            width=16,
+            state="readonly",
+        ).grid(row=1, column=1, sticky="w", padx=6)
         ttk.Label(controls, text="Model").grid(row=1, column=2, sticky="e")
         self.model_combo = ttk.Combobox(controls, textvariable=self.model_var, width=18)
         self.model_combo.grid(row=1, column=3, sticky="ew", padx=3)
+        ttk.Label(controls, text="Right output").grid(row=1, column=4, sticky="e")
+        ttk.Combobox(
+            controls,
+            textvariable=self.right_language_var,
+            values=OUTPUT_LANGUAGE_OPTIONS,
+            width=16,
+            state="readonly",
+        ).grid(row=1, column=5, sticky="w", padx=3)
 
         ttk.Label(controls, text="Interval ms").grid(row=2, column=0, sticky="w")
         ttk.Spinbox(controls, from_=500, to=10000, increment=250, textvariable=self.interval_var, width=10).grid(
             row=2, column=1, sticky="w", padx=6
         )
         ttk.Button(controls, text="Start", command=self.start).grid(row=2, column=2, padx=3)
-        ttk.Frame(controls).grid(row=2, column=3, sticky="ew")
-        ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=3, padx=3, sticky="w")
+        ttk.Button(controls, text="Retranslate", command=self.retranslate_current_text).grid(row=2, column=3, padx=3, sticky="w")
+        ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=4, padx=3, sticky="w")
 
         ttk.Label(controls, text="OCR").grid(row=3, column=0, sticky="w")
         ttk.Combobox(
@@ -859,6 +957,14 @@ class TranslatorApp:
         ttk.Spinbox(controls, from_=8, to=40, increment=1, textvariable=self.output_font_size_var, width=8).grid(
             row=6, column=3, sticky="w", padx=3
         )
+        ttk.Label(controls, text="Layout").grid(row=6, column=4, sticky="e")
+        ttk.Combobox(
+            controls,
+            textvariable=self.output_layout_var,
+            values=OUTPUT_LAYOUT_OPTIONS,
+            width=12,
+            state="readonly",
+        ).grid(row=6, column=5, sticky="w", padx=3)
 
         ttk.Label(controls, text="Window list").grid(row=7, column=0, sticky="w")
         self.window_combo = ttk.Combobox(
@@ -898,18 +1004,15 @@ class TranslatorApp:
                 row=1, column=index * 2 + 1, padx=(3, 10)
             )
 
-        self.output = tk.Text(root, wrap="word", font=self.output_font, height=11)
-        self.output.pack(fill="both", expand=True, padx=8, pady=(0, 8))
-        self.output.insert(
-            "1.0",
-            "Select a game window, then click Start.\n"
-            "The default crop captures the lower part of the game window.",
-        )
+        self.output_frame = ttk.Frame(root)
+        self.output_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self._build_output_layout()
 
         status = ttk.Label(root, textvariable=self.status_text, anchor="w", padding=(8, 0, 8, 8))
         status.pack(fill="x")
         controls.columnconfigure(1, weight=1)
         controls.columnconfigure(3, weight=1)
+        controls.columnconfigure(5, weight=1)
 
     def start(self) -> None:
         if self.running:
@@ -919,12 +1022,12 @@ class TranslatorApp:
         self.stop_event.clear()
         self.worker = threading.Thread(target=self._loop, daemon=True)
         self.worker.start()
-        self.status_text.set("Running")
+        self._set_status("Running", "Running")
 
     def stop(self) -> None:
         self.running = False
         self.stop_event.set()
-        self.status_text.set("Stopped")
+        self._set_status("Stopped", "Stopped")
 
     def refresh_window_list(self) -> None:
         windows = list_capture_windows()
@@ -969,7 +1072,7 @@ class TranslatorApp:
                 "Select a window from the list or enter part of the game window title before selecting an area.",
             )
             return
-        self.status_text.set("Drag over the game window to select the subtitle area")
+        self._set_status("Drag over the game window to select the subtitle area", "Selecting area")
 
         def apply_region(region: tuple[float, float, float, float]) -> None:
             left, top, right, bottom = region
@@ -977,10 +1080,10 @@ class TranslatorApp:
             self.top_var.set(round(top, 3))
             self.right_var.set(round(right, 3))
             self.bottom_var.set(round(bottom, 3))
-            self.status_text.set("Capture area updated")
+            self._set_status("Capture area updated", "Area updated")
 
         def cancel_region() -> None:
-            self.status_text.set("Capture area selection cancelled")
+            self._set_status("Capture area selection cancelled", "Selection cancelled")
 
         select_region_for_window(self.root, window, apply_region, cancel_region)
 
@@ -1069,6 +1172,8 @@ class TranslatorApp:
         payload = {
             "title": self.title_var.get().strip(),
             "target_language": settings.target_language,
+            "left_language": self.left_language_var.get().strip(),
+            "right_language": self.right_language_var.get().strip(),
             "model": settings.model,
             "openai_model": self.openai_model_var.get().strip(),
             "openai_url": self.openai_url_var.get().strip(),
@@ -1088,6 +1193,7 @@ class TranslatorApp:
             "context_lines": settings.context_lines,
             "stable_reads": settings.stable_reads,
             "interval_ms": self.interval_var.get(),
+            "output_layout": settings.output_layout,
             "font_family": settings.font_family,
             "font_size": settings.font_size,
             "left": settings.left,
@@ -1125,12 +1231,96 @@ class TranslatorApp:
         size = max(self.output_font_size_var.get(), 8)
         self.output_font.configure(family=family, size=size)
 
-    def _set_output(self, text: str) -> None:
-        if text == self.last_displayed_translation:
+    def _set_status(self, text: str, title_hint: str = "") -> None:
+        self.status_text.set(text)
+        self.title_status_text = title_hint or text
+        self.root.title(f"{BASE_WINDOW_TITLE} [{self.title_status_text}]")
+
+    def _build_output_layout(self) -> None:
+        if self.output_frame is None:
             return
-        self.last_displayed_translation = text
-        self.output.delete("1.0", "end")
-        self.output.insert("1.0", text)
+        layout = self.output_layout_var.get().strip() or DEFAULT_OUTPUT_LAYOUT
+        is_vertical = layout == "vertical"
+
+        self.left_output_frame = ttk.LabelFrame(self.output_frame, text="Top Panel" if is_vertical else "Left Panel", padding=6)
+        self.right_output_frame = ttk.LabelFrame(self.output_frame, text="Bottom Panel" if is_vertical else "Right Panel", padding=6)
+
+        if is_vertical:
+            self.left_output_frame.pack(side="top", fill="both", expand=True, pady=(0, 4))
+            self.right_output_frame.pack(side="top", fill="both", expand=True, pady=(4, 0))
+        else:
+            self.left_output_frame.pack(side="left", fill="both", expand=True, padx=(0, 4))
+            self.right_output_frame.pack(side="left", fill="both", expand=True, padx=(4, 0))
+
+        self.left_output = tk.Text(self.left_output_frame, wrap="word", font=self.output_font, height=11)
+        self.left_output.pack(fill="both", expand=True)
+        self.right_output = tk.Text(self.right_output_frame, wrap="word", font=self.output_font, height=11)
+        self.right_output.pack(fill="both", expand=True)
+
+        self.left_output.insert(
+            "1.0",
+            self.last_displayed_left_text
+            or "Select a game window, then click Start.\nThe first panel can show original OCR text or a chosen language.",
+        )
+        self.right_output.insert(
+            "1.0",
+            self.last_displayed_right_text or "The second panel can show another language at the same time.",
+        )
+
+    def _rebuild_output_layout(self) -> None:
+        if self.output_frame is None:
+            return
+        if self.left_output_frame is not None:
+            self.left_output_frame.destroy()
+        if self.right_output_frame is not None:
+            self.right_output_frame.destroy()
+        self.left_output = None
+        self.right_output = None
+        self._build_output_layout()
+
+    def _refresh_outputs_for_current_text(self) -> None:
+        source_text = self.pending_ocr_text or self.last_translated_ocr_text or self.last_ocr_text
+        if source_text:
+            self._translate_current_text(source_text, force_refresh=False)
+
+    def _set_left_output(self, text: str) -> None:
+        if text == self.last_displayed_left_text or self.left_output is None:
+            return
+        self.last_displayed_left_text = text
+        self.left_output.delete("1.0", "end")
+        self.left_output.insert("1.0", text)
+
+    def _set_right_output(self, text: str) -> None:
+        if text == self.last_displayed_right_text or self.right_output is None:
+            return
+        self.last_displayed_right_text = text
+        self.right_output.delete("1.0", "end")
+        self.right_output.insert("1.0", text)
+
+    def _translate_current_text(self, ocr_text: str, force_refresh: bool = False) -> None:
+        if not ocr_text:
+            self._set_status("No OCR text available for translation", "Idle")
+            return
+        if force_refresh:
+            self.translation_cache.clear()
+
+        self._set_status("Translating", "Translating...")
+        settings = self._settings()
+        context = self._translation_context()
+        window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
+        work_context = self._work_context_for_window(window, settings) if window else ""
+        left_text = self._panel_text(ocr_text, self.left_language_var.get().strip(), settings, context, work_context)
+        right_text = self._panel_text(ocr_text, self.right_language_var.get().strip(), settings, context, work_context)
+        self.last_ocr_text = ocr_text
+        self.last_translated_ocr_text = ocr_text
+        self._remember_source_line(ocr_text)
+        self._set_left_output(left_text)
+        self._set_right_output(right_text)
+        self._set_status("Updated", "Ready")
+
+    def retranslate_current_text(self) -> None:
+        source_text = self.pending_ocr_text or self.last_translated_ocr_text or self.last_ocr_text
+        self._translate_current_text(source_text, force_refresh=True)
 
     def _loop(self) -> None:
         with mss.mss() as capture:
@@ -1138,50 +1328,31 @@ class TranslatorApp:
                 try:
                     window = self.window_choices.get(self.window_choice_var.get()) or find_window(self.title_var.get())
                     if not window:
-                        self.root.after(0, self.status_text.set, "找不到游戏窗口")
+                        self.root.after(0, self._set_status, "Window not found", "Window not found")
                         time.sleep(1)
                         continue
 
                     image = self._capture_subtitle_area(capture, window)
-                    ocr_text, direct_translation = self._read_or_translate_image(image)
-                    if direct_translation and direct_translation != self.translation_cache.get("__last_direct__"):
-                        self.translation_cache["__last_direct__"] = direct_translation
-                        self.root.after(0, self._set_output, direct_translation)
-                        self.root.after(0, self.status_text.set, "已更新")
-                        time.sleep(max(self.interval_var.get(), 500) / 1000)
-                        continue
+                    ocr_text = self._read_text_from_image(image)
                     if (
                         ocr_text
                         and self.last_translated_ocr_text
                         and ocr_texts_are_similar(ocr_text, self.last_translated_ocr_text)
                     ):
                         self.last_ocr_text = ocr_text
-                        self.root.after(0, self.status_text.set, "同一句台词，保持当前译文")
+                        self.root.after(0, self._set_status, "Same dialogue detected, keeping current output", "Idle")
                     elif ocr_text and ocr_text != self.last_ocr_text:
                         if not self._ocr_is_stable(ocr_text):
-                            self.root.after(0, self.status_text.set, "等待文字稳定")
+                            self.root.after(0, self._set_status, "Waiting for stable OCR text", "Waiting for OCR")
                             time.sleep(max(self.interval_var.get(), 500) / 1000)
                             continue
 
                         ocr_text = self.pending_ocr_text
-                        self.root.after(0, self.status_text.set, "正在翻译")
-                        settings = self._settings()
-                        context = self._translation_context()
-                        work_context = self._work_context_for_window(window, settings)
-                        cache_key = self._cache_key(ocr_text, settings, context, work_context)
-                        translation = self.translation_cache.get(cache_key)
-                        if translation is None:
-                            translation = translate_text(ocr_text, settings, context, work_context)
-                            self.translation_cache[cache_key] = translation
-                        self.last_ocr_text = ocr_text
-                        self.last_translated_ocr_text = ocr_text
-                        self._remember_source_line(ocr_text)
-                        self.root.after(0, self._set_output, translation)
-                        self.root.after(0, self.status_text.set, "已更新")
+                        self.root.after(0, self._translate_current_text, ocr_text, False)
                     else:
-                        self.root.after(0, self.status_text.set, "未发现新文本")
+                        self.root.after(0, self._set_status, "No new text detected", "Idle")
                 except Exception as exc:
-                    self.root.after(0, self.status_text.set, f"错误：{exc}")
+                    self.root.after(0, self._set_status, f"Error: {exc}", "Error")
 
                 time.sleep(max(self.interval_var.get(), 500) / 1000)
 
@@ -1210,26 +1381,67 @@ class TranslatorApp:
         text = pytesseract.image_to_string(prepared, lang="eng", config=config)
         return normalize_ocr_text(text)
 
-    def _read_or_translate_image(self, image: Image.Image) -> tuple[str, str]:
+    def _read_text_from_image(self, image: Image.Image) -> str:
         engine = self.ocr_engine_var.get()
         has_tesseract = tesseract_is_available()
         if engine == "tesseract" or (engine == "auto" and has_tesseract):
-            return self._ocr(image), ""
+            return self._ocr(image)
         if engine == "auto" or engine == "openai-vision":
-            self.root.after(0, self.status_text.set, "正在识别并翻译截图")
-            return translate_image_with_openai(
+            self.root.after(0, self._set_status, "Reading OCR text from image", "Reading OCR...")
+            return read_text_with_openai(
                 image,
-                self.target_language_var.get().strip() or "Simplified Chinese",
                 self.model_var.get().strip() or "gpt-4o-mini",
                 self.api_url_var.get().strip() or API_PROVIDER_CONFIGS["openai"]["base_url"],
                 self.api_key_var.get().strip(),
             )
-        return "", "未知识别方式。"
+        return ""
+
+    def _panel_text(
+        self,
+        ocr_text: str,
+        output_language: str,
+        settings: TranslatorSettings,
+        context: list[str],
+        work_context: str,
+    ) -> str:
+        language = output_language or DEFAULT_OUTPUT_RIGHT_LANGUAGE
+        if language == ORIGINAL_OCR_LANGUAGE:
+            return ocr_text
+        cache_key = self._cache_key(ocr_text, settings, context, work_context, language)
+        translation = self.translation_cache.get(cache_key)
+        if translation is None:
+            panel_settings = TranslatorSettings(
+                translator=settings.translator,
+                target_language=language,
+                model=settings.model,
+                libre_url=settings.libre_url,
+                libre_target=settings.libre_target,
+                deepseek_model=settings.deepseek_model,
+                deepseek_url=settings.deepseek_url,
+                deepseek_api_key=settings.deepseek_api_key,
+                grok_model=settings.grok_model,
+                grok_url=settings.grok_url,
+                grok_api_key=settings.grok_api_key,
+                api_url=settings.api_url,
+                api_key=settings.api_key,
+                context_lines=settings.context_lines,
+                stable_reads=settings.stable_reads,
+                output_layout=settings.output_layout,
+                font_family=settings.font_family,
+                font_size=settings.font_size,
+                left=settings.left,
+                top=settings.top,
+                right=settings.right,
+                bottom=settings.bottom,
+            )
+            translation = translate_text(ocr_text, panel_settings, context, work_context)
+            self.translation_cache[cache_key] = translation
+        return translation
 
     def _settings(self) -> TranslatorSettings:
         return TranslatorSettings(
             translator=self.translator_var.get().strip() or "argos",
-            target_language=self.target_language_var.get().strip() or "Simplified Chinese",
+            target_language=self.right_language_var.get().strip() or DEFAULT_OUTPUT_RIGHT_LANGUAGE,
             model=self.model_var.get().strip() or "gpt-5-mini",
             libre_url=self.libre_url_var.get().strip() or "http://127.0.0.1:5000",
             libre_target=self.libre_target_var.get().strip() or "zh-Hans",
@@ -1243,6 +1455,7 @@ class TranslatorApp:
             api_key=self.api_key_var.get().strip(),
             context_lines=max(self.context_lines_var.get(), 0),
             stable_reads=max(self.stable_reads_var.get(), 1),
+            output_layout=self.output_layout_var.get().strip() or DEFAULT_OUTPUT_LAYOUT,
             font_family=self.output_font_family_var.get().strip() or DEFAULT_OUTPUT_FONT_FAMILY,
             font_size=max(self.output_font_size_var.get(), 8),
             left=self.left_var.get(),
@@ -1276,7 +1489,7 @@ class TranslatorApp:
         if key == self.current_work_context_key:
             return self.current_work_context
         if key not in self.work_context_cache:
-            self.root.after(0, self.status_text.set, "Looking up wiki context")
+            self.root.after(0, self._set_status, "Looking up wiki context", "Looking up context...")
             self.work_context_cache[key] = fetch_wiki_context(key)
         self.current_work_context_key = key
         self.current_work_context = self.work_context_cache.get(key, "")
@@ -1290,10 +1503,18 @@ class TranslatorApp:
         if len(self.recent_source_lines) > max_lines:
             self.recent_source_lines = self.recent_source_lines[-max_lines:]
 
-    def _cache_key(self, text: str, settings: TranslatorSettings, context: list[str], work_context: str = "") -> str:
+    def _cache_key(
+        self,
+        text: str,
+        settings: TranslatorSettings,
+        context: list[str],
+        work_context: str = "",
+        output_language: str = "",
+    ) -> str:
         context_key = "\n".join(context) if settings.translator in {"deepseek", "grok"} else ""
         work_key = work_context[:500] if settings.translator in {"deepseek", "grok"} else ""
-        return f"{settings.translator}|{settings.model}|{settings.target_language}|{work_key}|{context_key}|{text}"
+        language_key = output_language or settings.target_language
+        return f"{settings.translator}|{settings.model}|{language_key}|{work_key}|{context_key}|{text}"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -1306,8 +1527,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--target-language",
-        default=str(config.get("target_language", "Simplified Chinese")),
+        default=str(config.get("target_language", DEFAULT_OUTPUT_RIGHT_LANGUAGE)),
         help="Translation target language.",
+    )
+    parser.add_argument(
+        "--left-language",
+        default=str(config.get("left_language", DEFAULT_OUTPUT_LEFT_LANGUAGE)),
+        help="Language shown in the left output panel.",
+    )
+    parser.add_argument(
+        "--right-language",
+        default=str(config.get("right_language", config.get("target_language", DEFAULT_OUTPUT_RIGHT_LANGUAGE))),
+        help="Language shown in the right output panel.",
     )
     parser.add_argument(
         "--model",
@@ -1414,6 +1645,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=int(config.get("interval_ms", 1500)),
         help="OCR polling interval in milliseconds.",
+    )
+    parser.add_argument(
+        "--output-layout",
+        default=str(config.get("output_layout", DEFAULT_OUTPUT_LAYOUT)),
+        choices=OUTPUT_LAYOUT_OPTIONS,
+        help="Layout of the two output panels: horizontal or vertical.",
     )
     parser.add_argument(
         "--font-family",
