@@ -13,3 +13,4 @@ dist/
 *.key
 *Key.txt
 translator_settings.json
+vocabulary.jsonl

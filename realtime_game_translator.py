@@ -1,5 +1,6 @@
 import argparse
 import base64
+import datetime as dt
 import io
 import json
 import os
@@ -32,6 +33,7 @@ DEFAULT_OUTPUT_LEFT_LANGUAGE = ORIGINAL_OCR_LANGUAGE
 DEFAULT_OUTPUT_RIGHT_LANGUAGE = "Simplified Chinese"
 DEFAULT_OUTPUT_LAYOUT = "horizontal"
 BASE_WINDOW_TITLE = "Game Dialogue Translator"
+VOCABULARY_FILENAME = "vocabulary.jsonl"
 OUTPUT_LANGUAGE_OPTIONS = (
     ORIGINAL_OCR_LANGUAGE,
     "Simplified Chinese",
@@ -88,6 +90,10 @@ def models_for_provider(provider: str) -> tuple[str, ...]:
 
 def local_config_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), LOCAL_CONFIG_FILENAME)
+
+
+def vocabulary_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), VOCABULARY_FILENAME)
 
 
 def configure_tesseract() -> None:
@@ -801,6 +807,31 @@ def save_local_settings(settings: dict[str, object]) -> None:
         json.dump(settings, file, ensure_ascii=False, indent=2)
 
 
+def append_vocabulary_entry(entry: dict[str, object]) -> None:
+    path = vocabulary_path()
+    with open(path, "a", encoding="utf-8") as file:
+        file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def load_vocabulary_entries() -> list[dict[str, object]]:
+    path = vocabulary_path()
+    if not os.path.exists(path):
+        return []
+    entries: list[dict[str, object]] = []
+    with open(path, "r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(item, dict):
+                entries.append(item)
+    return entries
+
+
 class TranslatorApp:
     def __init__(self, root: tk.Tk, args: argparse.Namespace) -> None:
         self.root = root
@@ -853,6 +884,7 @@ class TranslatorApp:
         self.last_translated_ocr_text = ""
         self.last_displayed_left_text = ""
         self.last_displayed_right_text = ""
+        self.lock_current_line_var = tk.BooleanVar(value=args.lock_current_line)
         self.recent_source_lines: list[str] = []
         self.window_choice_var = tk.StringVar(value="")
         self.window_choices: dict[str, WindowInfo] = {}
@@ -920,6 +952,8 @@ class TranslatorApp:
         ttk.Button(controls, text="Start", command=self.start).grid(row=2, column=2, padx=3)
         ttk.Button(controls, text="Retranslate", command=self.retranslate_current_text).grid(row=2, column=3, padx=3, sticky="w")
         ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=4, padx=3, sticky="w")
+        ttk.Button(controls, text="Collect Selection", command=self.collect_selection).grid(row=2, column=5, padx=3, sticky="w")
+        ttk.Button(controls, text="Collect Current", command=self.collect_current_pair).grid(row=2, column=6, padx=3, sticky="w")
 
         ttk.Label(controls, text="OCR").grid(row=3, column=0, sticky="w")
         ttk.Combobox(
@@ -949,6 +983,9 @@ class TranslatorApp:
         ttk.Entry(controls, textvariable=self.api_key_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
         ttk.Button(controls, text="Provider configs", command=self.open_provider_config_window).grid(
             row=5, column=4, padx=(6, 0), sticky="w"
+        )
+        ttk.Button(controls, text="Vocabulary", command=self.open_vocabulary_window).grid(
+            row=5, column=5, padx=(6, 0), sticky="w"
         )
 
         ttk.Label(controls, text="Font").grid(row=6, column=0, sticky="w")
@@ -984,6 +1021,9 @@ class TranslatorApp:
         ttk.Label(controls, text="Stable reads").grid(row=8, column=2, sticky="e")
         ttk.Spinbox(controls, from_=1, to=5, increment=1, textvariable=self.stable_reads_var, width=8).grid(
             row=8, column=3, sticky="w", padx=3
+        )
+        ttk.Checkbutton(controls, text="Lock current line", variable=self.lock_current_line_var).grid(
+            row=8, column=4, columnspan=2, sticky="w", padx=(6, 0)
         )
 
         crop = ttk.LabelFrame(root, text="Subtitle crop area", padding=8)
@@ -1192,6 +1232,7 @@ class TranslatorApp:
             "api_key": settings.api_key,
             "context_lines": settings.context_lines,
             "stable_reads": settings.stable_reads,
+            "lock_current_line": self.lock_current_line_var.get(),
             "interval_ms": self.interval_var.get(),
             "output_layout": settings.output_layout,
             "font_family": settings.font_family,
@@ -1241,9 +1282,19 @@ class TranslatorApp:
             return
         layout = self.output_layout_var.get().strip() or DEFAULT_OUTPUT_LAYOUT
         is_vertical = layout == "vertical"
+        left_label = self.left_language_var.get().strip() or DEFAULT_OUTPUT_LEFT_LANGUAGE
+        right_label = self.right_language_var.get().strip() or DEFAULT_OUTPUT_RIGHT_LANGUAGE
 
-        self.left_output_frame = ttk.LabelFrame(self.output_frame, text="Top Panel" if is_vertical else "Left Panel", padding=6)
-        self.right_output_frame = ttk.LabelFrame(self.output_frame, text="Bottom Panel" if is_vertical else "Right Panel", padding=6)
+        self.left_output_frame = ttk.LabelFrame(
+            self.output_frame,
+            text=f"{'Top' if is_vertical else 'Left'}: {left_label}",
+            padding=6,
+        )
+        self.right_output_frame = ttk.LabelFrame(
+            self.output_frame,
+            text=f"{'Bottom' if is_vertical else 'Right'}: {right_label}",
+            padding=6,
+        )
 
         if is_vertical:
             self.left_output_frame.pack(side="top", fill="both", expand=True, pady=(0, 4))
@@ -1279,6 +1330,7 @@ class TranslatorApp:
         self._build_output_layout()
 
     def _refresh_outputs_for_current_text(self) -> None:
+        self._rebuild_output_layout()
         source_text = self.pending_ocr_text or self.last_translated_ocr_text or self.last_ocr_text
         if source_text:
             self._translate_current_text(source_text, force_refresh=False)
@@ -1296,6 +1348,102 @@ class TranslatorApp:
         self.last_displayed_right_text = text
         self.right_output.delete("1.0", "end")
         self.right_output.insert("1.0", text)
+
+    def _selected_text(self, widget: tk.Text | None) -> str:
+        if widget is None:
+            return ""
+        try:
+            return widget.get("sel.first", "sel.last").strip()
+        except tk.TclError:
+            return ""
+
+    def collect_selection(self) -> None:
+        left_selection = self._selected_text(self.left_output)
+        right_selection = self._selected_text(self.right_output)
+        source_text = left_selection or self.last_displayed_left_text.strip()
+        translation_text = right_selection or self.last_displayed_right_text.strip()
+
+        if not left_selection and not right_selection:
+            messagebox.showinfo("No selection", "Select text in one of the output panels before collecting.")
+            return
+
+        self.open_collect_dialog(source_text, translation_text)
+
+    def collect_current_pair(self) -> None:
+        source_text = self.last_displayed_left_text.strip()
+        translation_text = self.last_displayed_right_text.strip()
+        if not source_text and not translation_text:
+            messagebox.showinfo("No current text", "There is no current dialogue to collect yet.")
+            return
+        self.open_collect_dialog(source_text, translation_text)
+
+    def open_collect_dialog(self, source_text: str, translation_text: str) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Collect Vocabulary")
+        dialog.geometry("720x420")
+        dialog.transient(self.root)
+
+        frame = ttk.Frame(dialog, padding=10)
+        frame.pack(fill="both", expand=True)
+
+        source_var = tk.StringVar(value=source_text)
+        translation_var = tk.StringVar(value=translation_text)
+        kind_var = tk.StringVar(value="phrase" if " " in source_text else "word")
+        tags_var = tk.StringVar(value="")
+
+        ttk.Label(frame, text="Source").grid(row=0, column=0, sticky="w")
+        source_box = tk.Text(frame, height=5, wrap="word")
+        source_box.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
+        source_box.insert("1.0", source_var.get())
+
+        ttk.Label(frame, text="Translation").grid(row=2, column=0, sticky="w")
+        translation_box = tk.Text(frame, height=5, wrap="word")
+        translation_box.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
+        translation_box.insert("1.0", translation_var.get())
+
+        ttk.Label(frame, text="Kind").grid(row=4, column=0, sticky="w")
+        ttk.Combobox(frame, textvariable=kind_var, values=("word", "phrase", "sentence"), width=12, state="readonly").grid(
+            row=4, column=1, sticky="w", pady=(0, 8)
+        )
+
+        ttk.Label(frame, text="Tags").grid(row=5, column=0, sticky="w")
+        ttk.Entry(frame, textvariable=tags_var, width=32).grid(row=5, column=1, sticky="ew", pady=(0, 8))
+
+        ttk.Label(frame, text="Note").grid(row=6, column=0, sticky="w")
+        note_box = tk.Text(frame, height=4, wrap="word")
+        note_box.grid(row=7, column=0, columnspan=2, sticky="nsew", pady=(2, 8))
+
+        def save_entry() -> None:
+            source_value = source_box.get("1.0", "end").strip()
+            translation_value = translation_box.get("1.0", "end").strip()
+            note_value = note_box.get("1.0", "end").strip()
+            if not source_value:
+                messagebox.showwarning("Missing source", "Source text cannot be empty.")
+                return
+            entry = {
+                "source": source_value,
+                "translation": translation_value,
+                "source_language": self.left_language_var.get().strip(),
+                "target_language": self.right_language_var.get().strip(),
+                "kind": kind_var.get().strip() or "phrase",
+                "tags": [tag.strip() for tag in tags_var.get().split(",") if tag.strip()],
+                "note": note_value,
+                "created_at": dt.datetime.now().isoformat(timespec="seconds"),
+                "window_title": self.title_var.get().strip(),
+            }
+            append_vocabulary_entry(entry)
+            self._set_status("Vocabulary collected", "Collected")
+            dialog.destroy()
+
+        button_row = ttk.Frame(frame)
+        button_row.grid(row=8, column=0, columnspan=2, sticky="e")
+        ttk.Button(button_row, text="Save", command=save_entry).pack(side="left", padx=(0, 6))
+        ttk.Button(button_row, text="Cancel", command=dialog.destroy).pack(side="left")
+
+        frame.columnconfigure(1, weight=1)
+        frame.rowconfigure(1, weight=1)
+        frame.rowconfigure(3, weight=1)
+        frame.rowconfigure(7, weight=1)
 
     def _translate_current_text(self, ocr_text: str, force_refresh: bool = False) -> None:
         if not ocr_text:
@@ -1322,6 +1470,84 @@ class TranslatorApp:
         source_text = self.pending_ocr_text or self.last_translated_ocr_text or self.last_ocr_text
         self._translate_current_text(source_text, force_refresh=True)
 
+    def open_vocabulary_window(self) -> None:
+        window = tk.Toplevel(self.root)
+        window.title("Vocabulary")
+        window.geometry("900x520")
+        window.transient(self.root)
+
+        frame = ttk.Frame(window, padding=10)
+        frame.pack(fill="both", expand=True)
+
+        columns = ("created_at", "kind", "source", "translation", "tags")
+        tree = ttk.Treeview(frame, columns=columns, show="headings")
+        headings = {
+            "created_at": "Created",
+            "kind": "Kind",
+            "source": "Source",
+            "translation": "Translation",
+            "tags": "Tags",
+        }
+        widths = {
+            "created_at": 140,
+            "kind": 80,
+            "source": 240,
+            "translation": 260,
+            "tags": 140,
+        }
+        for key in columns:
+            tree.heading(key, text=headings[key])
+            tree.column(key, width=widths[key], anchor="w")
+
+        scrollbar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        details = tk.Text(frame, height=8, wrap="word")
+        details.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(8, 0))
+
+        entries = load_vocabulary_entries()
+        for index, entry in enumerate(entries):
+            tree.insert(
+                "",
+                "end",
+                iid=str(index),
+                values=(
+                    str(entry.get("created_at", "")),
+                    str(entry.get("kind", "")),
+                    str(entry.get("source", "")),
+                    str(entry.get("translation", "")),
+                    ", ".join(entry.get("tags", [])) if isinstance(entry.get("tags"), list) else str(entry.get("tags", "")),
+                ),
+            )
+
+        def on_select(_event: object) -> None:
+            selected = tree.selection()
+            if not selected:
+                return
+            entry = entries[int(selected[0])]
+            lines = [
+                f"Source: {entry.get('source', '')}",
+                f"Translation: {entry.get('translation', '')}",
+                f"Source language: {entry.get('source_language', '')}",
+                f"Target language: {entry.get('target_language', '')}",
+                f"Kind: {entry.get('kind', '')}",
+                f"Tags: {', '.join(entry.get('tags', [])) if isinstance(entry.get('tags'), list) else entry.get('tags', '')}",
+                f"Window: {entry.get('window_title', '')}",
+                f"Created: {entry.get('created_at', '')}",
+                "",
+                f"Note: {entry.get('note', '')}",
+            ]
+            details.delete("1.0", "end")
+            details.insert("1.0", "\n".join(lines))
+
+        tree.bind("<<TreeviewSelect>>", on_select)
+
+        frame.columnconfigure(0, weight=1)
+        frame.rowconfigure(0, weight=1)
+        frame.rowconfigure(1, weight=1)
+
     def _loop(self) -> None:
         with mss.mss() as capture:
             while not self.stop_event.is_set():
@@ -1342,6 +1568,11 @@ class TranslatorApp:
                         self.last_ocr_text = ocr_text
                         self.root.after(0, self._set_status, "Same dialogue detected, keeping current output", "Idle")
                     elif ocr_text and ocr_text != self.last_ocr_text:
+                        if self.lock_current_line_var.get():
+                            self.last_ocr_text = ocr_text
+                            self.root.after(0, self._set_status, "New dialogue detected but current line is locked", "Locked")
+                            time.sleep(max(self.interval_var.get(), 500) / 1000)
+                            continue
                         if not self._ocr_is_stable(ocr_text):
                             self.root.after(0, self._set_status, "Waiting for stable OCR text", "Waiting for OCR")
                             time.sleep(max(self.interval_var.get(), 500) / 1000)
@@ -1639,6 +1870,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=int,
         default=int(config.get("stable_reads", 3)),
         help="OCR must match this many times before refresh.",
+    )
+    parser.add_argument(
+        "--lock-current-line",
+        action="store_true",
+        default=bool(config.get("lock_current_line", False)),
+        help="Keep the current dialogue on screen until unlocked.",
     )
     parser.add_argument(
         "--interval-ms",
