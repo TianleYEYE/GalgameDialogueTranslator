@@ -26,6 +26,7 @@ from PIL import Image, ImageOps
 DEFAULT_TESSERACT_EXE = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 DEFAULT_OUTPUT_FONT_FAMILY = "Microsoft YaHei UI"
 DEFAULT_OUTPUT_FONT_SIZE = 13
+LOCAL_CONFIG_FILENAME = "translator_settings.json"
 OCR_SIMILARITY_THRESHOLD = 0.78
 WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 
@@ -69,6 +70,10 @@ def detect_api_provider(base_url: str, fallback: str = "") -> str:
 
 def models_for_provider(provider: str) -> tuple[str, ...]:
     return API_PROVIDER_CONFIGS.get(provider, {}).get("models", ())
+
+
+def local_config_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), LOCAL_CONFIG_FILENAME)
 
 
 def configure_tesseract() -> None:
@@ -631,6 +636,12 @@ class TranslatorSettings:
     api_key: str
     context_lines: int
     stable_reads: int
+    font_family: str
+    font_size: int
+    left: float
+    top: float
+    right: float
+    bottom: float
 
 
 def translate_image_with_openai(
@@ -700,6 +711,24 @@ def translate_image_with_openai(
     return "", "\n".join(chunks).strip()
 
 
+def load_local_settings() -> dict[str, object]:
+    path = local_config_path()
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_local_settings(settings: dict[str, object]) -> None:
+    path = local_config_path()
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(settings, file, ensure_ascii=False, indent=2)
+
+
 class TranslatorApp:
     def __init__(self, root: tk.Tk, args: argparse.Namespace) -> None:
         self.root = root
@@ -713,9 +742,13 @@ class TranslatorApp:
         self.last_ocr_text = ""
         self.translation_cache: dict[str, str] = {}
         self.status_text = tk.StringVar(value="Ready")
+        self.config_path = local_config_path()
 
         self.title_var = tk.StringVar(value=args.title)
         self.target_language_var = tk.StringVar(value=args.target_language)
+        self.openai_model_var = tk.StringVar(value=args.openai_model)
+        self.openai_url_var = tk.StringVar(value=args.openai_url)
+        self.openai_api_key_var = tk.StringVar(value=args.openai_api_key)
         self.model_var = tk.StringVar(value=args.model)
         self.ocr_engine_var = tk.StringVar(value=args.ocr_engine)
         self.translator_var = tk.StringVar(value=args.translator)
@@ -750,11 +783,15 @@ class TranslatorApp:
         self.work_context_cache: dict[str, str] = {}
         self.current_work_context = ""
         self.current_work_context_key = ""
+        self.current_provider = self.translator_var.get().strip()
         self.window_combo: ttk.Combobox | None = None
         self.model_combo: ttk.Combobox | None = None
+        self.provider_config_window: tk.Toplevel | None = None
         self.output_font = tkfont.Font(family=self.output_font_family_var.get(), size=self.output_font_size_var.get())
 
         self._build_ui()
+        if self.current_provider in API_PROVIDER_CONFIGS:
+            self._apply_provider_to_ui(self.current_provider)
         self.refresh_window_list()
         self._sync_api_provider_fields()
         self.translator_var.trace_add("write", lambda *_args: self._on_provider_changed())
@@ -783,6 +820,7 @@ class TranslatorApp:
             row=2, column=1, sticky="w", padx=6
         )
         ttk.Button(controls, text="Start", command=self.start).grid(row=2, column=2, padx=3)
+        ttk.Frame(controls).grid(row=2, column=3, sticky="ew")
         ttk.Button(controls, text="Stop", command=self.stop).grid(row=2, column=3, padx=3, sticky="w")
 
         ttk.Label(controls, text="OCR").grid(row=3, column=0, sticky="w")
@@ -811,6 +849,9 @@ class TranslatorApp:
         ttk.Entry(controls, textvariable=self.api_url_var, width=32).grid(row=5, column=1, sticky="ew", padx=6)
         ttk.Label(controls, text="API Key").grid(row=5, column=2, sticky="e")
         ttk.Entry(controls, textvariable=self.api_key_var, width=24).grid(row=5, column=3, sticky="ew", padx=3)
+        ttk.Button(controls, text="Provider configs", command=self.open_provider_config_window).grid(
+            row=5, column=4, padx=(6, 0), sticky="w"
+        )
 
         ttk.Label(controls, text="Font").grid(row=6, column=0, sticky="w")
         ttk.Entry(controls, textvariable=self.output_font_family_var, width=26).grid(row=6, column=1, sticky="ew", padx=6)
@@ -868,10 +909,12 @@ class TranslatorApp:
         status = ttk.Label(root, textvariable=self.status_text, anchor="w", padding=(8, 0, 8, 8))
         status.pack(fill="x")
         controls.columnconfigure(1, weight=1)
+        controls.columnconfigure(3, weight=1)
 
     def start(self) -> None:
         if self.running:
             return
+        self.save_settings()
         self.running = True
         self.stop_event.clear()
         self.worker = threading.Thread(target=self._loop, daemon=True)
@@ -947,10 +990,118 @@ class TranslatorApp:
     def _default_api_key(self, provider: str) -> str:
         return ""
 
+    def _provider_state(self, provider: str) -> tuple[tk.StringVar, tk.StringVar, tk.StringVar]:
+        if provider == "deepseek":
+            return self.deepseek_model_var, self.deepseek_url_var, self.deepseek_api_key_var
+        if provider == "grok":
+            return self.grok_model_var, self.grok_url_var, self.grok_api_key_var
+        return self.openai_model_var, self.openai_url_var, self.openai_api_key_var
+
+    def _capture_current_provider_settings(self) -> None:
+        provider = self.current_provider
+        if provider not in API_PROVIDER_CONFIGS:
+            return
+        model_var, url_var, key_var = self._provider_state(provider)
+        model_var.set(self.model_var.get().strip())
+        url_var.set(self.api_url_var.get().strip())
+        key_var.set(self.api_key_var.get().strip())
+
+    def _apply_provider_to_ui(self, provider: str) -> None:
+        if provider not in API_PROVIDER_CONFIGS:
+            return
+        model_var, url_var, key_var = self._provider_state(provider)
+        self.current_provider = provider
+        self.model_var.set(model_var.get().strip() or models_for_provider(provider)[0])
+        self.api_url_var.set(url_var.get().strip() or self._default_api_url(provider))
+        self.api_key_var.set(key_var.get().strip())
+
+    def use_provider_config(self, provider: str) -> None:
+        self._capture_current_provider_settings()
+        self.translator_var.set(provider)
+        self._apply_provider_to_ui(provider)
+        self._sync_api_provider_fields()
+
+    def open_provider_config_window(self) -> None:
+        if self.provider_config_window is not None and self.provider_config_window.winfo_exists():
+            self.provider_config_window.lift()
+            self.provider_config_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        window.title("Provider Configs")
+        window.geometry("860x220")
+        window.transient(self.root)
+        self.provider_config_window = window
+
+        frame = ttk.Frame(window, padding=10)
+        frame.pack(fill="both", expand=True)
+
+        headers = ("Provider", "Model", "API URL", "API Key", "Use")
+        for col, header in enumerate(headers):
+            ttk.Label(frame, text=header).grid(row=0, column=col, sticky="w", padx=4, pady=(0, 6))
+
+        provider_rows = [
+            ("openai", "OpenAI"),
+            ("deepseek", "DeepSeek"),
+            ("grok", "Grok"),
+        ]
+        for row, (provider_key, provider_label) in enumerate(provider_rows, start=1):
+            model_var, url_var, key_var = self._provider_state(provider_key)
+            ttk.Label(frame, text=provider_label).grid(row=row, column=0, sticky="w", padx=4, pady=4)
+            ttk.Entry(frame, textvariable=model_var, width=18).grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+            ttk.Entry(frame, textvariable=url_var, width=34).grid(row=row, column=2, sticky="ew", padx=4, pady=4)
+            ttk.Entry(frame, textvariable=key_var, width=28).grid(row=row, column=3, sticky="ew", padx=4, pady=4)
+            ttk.Button(frame, text="Use", command=lambda p=provider_key: self.use_provider_config(p)).grid(
+                row=row, column=4, sticky="w", padx=4, pady=4
+            )
+
+        ttk.Button(frame, text="Save configs", command=self.save_settings).grid(row=4, column=3, sticky="e", padx=4, pady=(10, 0))
+        ttk.Button(frame, text="Close", command=window.destroy).grid(row=4, column=4, sticky="w", padx=4, pady=(10, 0))
+
+        frame.columnconfigure(1, weight=1)
+        frame.columnconfigure(2, weight=1)
+        frame.columnconfigure(3, weight=1)
+        window.protocol("WM_DELETE_WINDOW", window.destroy)
+
+    def save_settings(self) -> None:
+        self._capture_current_provider_settings()
+        settings = self._settings()
+        payload = {
+            "title": self.title_var.get().strip(),
+            "target_language": settings.target_language,
+            "model": settings.model,
+            "openai_model": self.openai_model_var.get().strip(),
+            "openai_url": self.openai_url_var.get().strip(),
+            "openai_api_key": self.openai_api_key_var.get().strip(),
+            "ocr_engine": self.ocr_engine_var.get().strip() or "tesseract",
+            "translator": settings.translator,
+            "libre_url": settings.libre_url,
+            "libre_target": settings.libre_target,
+            "deepseek_model": settings.deepseek_model,
+            "deepseek_url": settings.deepseek_url,
+            "deepseek_api_key": settings.deepseek_api_key,
+            "grok_model": settings.grok_model,
+            "grok_url": settings.grok_url,
+            "grok_api_key": settings.grok_api_key,
+            "api_url": settings.api_url,
+            "api_key": settings.api_key,
+            "context_lines": settings.context_lines,
+            "stable_reads": settings.stable_reads,
+            "interval_ms": self.interval_var.get(),
+            "font_family": settings.font_family,
+            "font_size": settings.font_size,
+            "left": settings.left,
+            "top": settings.top,
+            "right": settings.right,
+            "bottom": settings.bottom,
+        }
+        save_local_settings(payload)
+
     def _on_provider_changed(self) -> None:
+        self._capture_current_provider_settings()
         provider = self.translator_var.get().strip()
         if provider in API_PROVIDER_CONFIGS:
-            self.api_url_var.set(self._default_api_url(provider))
+            self._apply_provider_to_ui(provider)
         self._sync_api_provider_fields()
 
     def _on_api_url_changed(self) -> None:
@@ -1092,6 +1243,12 @@ class TranslatorApp:
             api_key=self.api_key_var.get().strip(),
             context_lines=max(self.context_lines_var.get(), 0),
             stable_reads=max(self.stable_reads_var.get(), 1),
+            font_family=self.output_font_family_var.get().strip() or DEFAULT_OUTPUT_FONT_FAMILY,
+            font_size=max(self.output_font_size_var.get(), 8),
+            left=self.left_var.get(),
+            top=self.top_var.get(),
+            right=self.right_var.get(),
+            bottom=self.bottom_var.get(),
         )
 
     def _ocr_is_stable(self, text: str) -> bool:
@@ -1140,92 +1297,139 @@ class TranslatorApp:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    config = load_local_settings()
     parser = argparse.ArgumentParser(description="Realtime OCR translator for visual novel game windows.")
-    parser.add_argument("--title", default="", help="Part of the game window title to capture. Leave empty to select from the window list.")
-    parser.add_argument("--target-language", default="Simplified Chinese", help="Translation target language.")
-    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-5-mini"), help="OpenAI model name.")
+    parser.add_argument(
+        "--title",
+        default=str(config.get("title", "")),
+        help="Part of the game window title to capture. Leave empty to select from the window list.",
+    )
+    parser.add_argument(
+        "--target-language",
+        default=str(config.get("target_language", "Simplified Chinese")),
+        help="Translation target language.",
+    )
+    parser.add_argument(
+        "--model",
+        default=str(config.get("model", os.environ.get("OPENAI_MODEL", "gpt-5-mini"))),
+        help="OpenAI model name.",
+    )
+    parser.add_argument(
+        "--openai-model",
+        default=str(config.get("openai_model", config.get("model", os.environ.get("OPENAI_MODEL", "gpt-5-mini")))),
+        help="Stored OpenAI model name for the provider config list.",
+    )
+    parser.add_argument(
+        "--openai-url",
+        default=str(config.get("openai_url", "https://api.openai.com/v1")),
+        help="Stored OpenAI API base URL for the provider config list.",
+    )
+    parser.add_argument(
+        "--openai-api-key",
+        default=str(config.get("openai_api_key", config.get("api_key", ""))),
+        help="Stored OpenAI API key for the provider config list.",
+    )
     parser.add_argument(
         "--ocr-engine",
-        default="tesseract",
+        default=str(config.get("ocr_engine", "tesseract")),
         choices=("auto", "openai-vision", "tesseract"),
         help="OCR engine. auto uses Tesseract when available, otherwise OpenAI vision.",
     )
     parser.add_argument(
         "--translator",
-        default=os.environ.get("TRANSLATOR", "argos"),
+        default=str(config.get("translator", os.environ.get("TRANSLATOR", "argos"))),
         choices=("argos", "deepseek", "grok", "libretranslate", "openai"),
         help="Text translation backend.",
     )
     parser.add_argument(
         "--libre-url",
-        default=os.environ.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000"),
+        default=str(config.get("libre_url", os.environ.get("LIBRETRANSLATE_URL", "http://127.0.0.1:5000"))),
         help="LibreTranslate base URL.",
     )
-    parser.add_argument("--libre-target", default="zh-Hans", help="LibreTranslate target language code.")
+    parser.add_argument(
+        "--libre-target",
+        default=str(config.get("libre_target", "zh-Hans")),
+        help="LibreTranslate target language code.",
+    )
     parser.add_argument(
         "--deepseek-model",
-        default=os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
+        default=str(config.get("deepseek_model", os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"))),
         help="DeepSeek model name.",
     )
     parser.add_argument(
         "--deepseek-url",
-        default=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        default=str(config.get("deepseek_url", os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))),
         help="DeepSeek API base URL.",
     )
     parser.add_argument(
         "--deepseek-api-key",
         "--deepseek-api-key-file",
         dest="deepseek_api_key",
-        default="",
+        default=str(config.get("deepseek_api_key", "")),
         help="DeepSeek API key. A legacy text-file path is still accepted for compatibility.",
     )
     parser.add_argument(
         "--grok-model",
-        default=os.environ.get("GROK_MODEL", "grok-4"),
+        default=str(config.get("grok_model", os.environ.get("GROK_MODEL", "grok-4"))),
         help="Grok model name.",
     )
     parser.add_argument(
         "--grok-url",
-        default=os.environ.get("GROK_BASE_URL", "https://api.x.ai/v1"),
+        default=str(config.get("grok_url", os.environ.get("GROK_BASE_URL", "https://api.x.ai/v1"))),
         help="Grok/xAI API base URL.",
     )
     parser.add_argument(
         "--grok-api-key",
         "--grok-api-key-file",
         dest="grok_api_key",
-        default="",
+        default=str(config.get("grok_api_key", "")),
         help="xAI API key. A legacy text-file path is still accepted for compatibility.",
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("TRANSLATION_API_BASE_URL", ""),
+        default=str(config.get("api_url", os.environ.get("TRANSLATION_API_BASE_URL", ""))),
         help="Unified chat-completions API base URL. Recognizes DeepSeek and xAI/Grok.",
     )
     parser.add_argument(
         "--api-key",
         "--api-key-file",
         dest="api_key",
-        default="",
+        default=str(config.get("api_key", "")),
         help="Unified API key for the selected online provider. A legacy text-file path is still accepted.",
     )
-    parser.add_argument("--context-lines", type=int, default=6, help="Recent OCR lines to send as translation context.")
-    parser.add_argument("--stable-reads", type=int, default=3, help="OCR must match this many times before refresh.")
-    parser.add_argument("--interval-ms", type=int, default=1500, help="OCR polling interval in milliseconds.")
+    parser.add_argument(
+        "--context-lines",
+        type=int,
+        default=int(config.get("context_lines", 6)),
+        help="Recent OCR lines to send as translation context.",
+    )
+    parser.add_argument(
+        "--stable-reads",
+        type=int,
+        default=int(config.get("stable_reads", 3)),
+        help="OCR must match this many times before refresh.",
+    )
+    parser.add_argument(
+        "--interval-ms",
+        type=int,
+        default=int(config.get("interval_ms", 1500)),
+        help="OCR polling interval in milliseconds.",
+    )
     parser.add_argument(
         "--font-family",
-        default=os.environ.get("TRANSLATION_FONT_FAMILY", DEFAULT_OUTPUT_FONT_FAMILY),
+        default=str(config.get("font_family", os.environ.get("TRANSLATION_FONT_FAMILY", DEFAULT_OUTPUT_FONT_FAMILY))),
         help="Font family used for translated text display.",
     )
     parser.add_argument(
         "--font-size",
         type=int,
-        default=int(os.environ.get("TRANSLATION_FONT_SIZE", str(DEFAULT_OUTPUT_FONT_SIZE))),
+        default=int(config.get("font_size", os.environ.get("TRANSLATION_FONT_SIZE", str(DEFAULT_OUTPUT_FONT_SIZE)))),
         help="Font size used for translated text display.",
     )
-    parser.add_argument("--left", type=float, default=0.05, help="Subtitle crop left ratio.")
-    parser.add_argument("--top", type=float, default=0.62, help="Subtitle crop top ratio.")
-    parser.add_argument("--right", type=float, default=0.95, help="Subtitle crop right ratio.")
-    parser.add_argument("--bottom", type=float, default=0.95, help="Subtitle crop bottom ratio.")
+    parser.add_argument("--left", type=float, default=float(config.get("left", 0.05)), help="Subtitle crop left ratio.")
+    parser.add_argument("--top", type=float, default=float(config.get("top", 0.62)), help="Subtitle crop top ratio.")
+    parser.add_argument("--right", type=float, default=float(config.get("right", 0.95)), help="Subtitle crop right ratio.")
+    parser.add_argument("--bottom", type=float, default=float(config.get("bottom", 0.95)), help="Subtitle crop bottom ratio.")
     return parser.parse_args(argv)
 
 
@@ -1234,7 +1438,13 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     root = tk.Tk()
     app = TranslatorApp(root, args)
-    root.protocol("WM_DELETE_WINDOW", lambda: (app.stop(), root.destroy()))
+
+    def close_app() -> None:
+        app.save_settings()
+        app.stop()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close_app)
     root.mainloop()
     return 0
 

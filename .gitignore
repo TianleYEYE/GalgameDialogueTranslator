@@ -12,3 +12,4 @@ dist/
 .env
 *.key
 *Key.txt
+translator_settings.json
