@@ -85,6 +85,21 @@ struct CollectVocabularyRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UpdateVocabularyRequest {
+    created_at: String,
+    source: String,
+    translation: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteVocabularyRequest {
+    created_at: String,
+    source: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SelectAreaRequest {
     window_title: String,
     #[serde(default)]
@@ -405,6 +420,32 @@ fn list_vocabulary_command(app: AppHandle) -> Result<VocabularyListResponse, Str
 }
 
 #[tauri::command]
+fn update_vocabulary_command(app: AppHandle, request: UpdateVocabularyRequest) -> Result<BasicOkResponse, String> {
+    let mut command = python_command(&app)?;
+    command
+        .arg("update-vocabulary")
+        .arg("--created-at")
+        .arg(&request.created_at)
+        .arg("--source")
+        .arg(&request.source)
+        .arg("--translation")
+        .arg(&request.translation);
+    parse_json(run_python(command)?)
+}
+
+#[tauri::command]
+fn delete_vocabulary_command(app: AppHandle, request: DeleteVocabularyRequest) -> Result<BasicOkResponse, String> {
+    let mut command = python_command(&app)?;
+    command
+        .arg("delete-vocabulary")
+        .arg("--created-at")
+        .arg(&request.created_at)
+        .arg("--source")
+        .arg(&request.source);
+    parse_json(run_python(command)?)
+}
+
+#[tauri::command]
 fn load_settings_command(app: AppHandle) -> Result<SettingsResponse, String> {
     let path = settings_path(&app)?;
     if !path.exists() {
@@ -470,6 +511,8 @@ fn main() {
             ocr_translate_command,
             collect_vocabulary_command,
             list_vocabulary_command,
+            update_vocabulary_command,
+            delete_vocabulary_command,
             select_area_command,
             preview_area_command
         ])

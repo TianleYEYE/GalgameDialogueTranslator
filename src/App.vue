@@ -244,12 +244,59 @@
       </section>
 
       <section class="vocab-drawer">
-        <button class="vocab-toggle" type="button" @click="showVocabularyPanel = !showVocabularyPanel">
+        <button class="vocab-toggle" type="button" @click="toggleVocabularyPanel">
           <span>▰</span>
           {{ ui.vocabulary }} ({{ collectedCount }})
           <span class="chevron">{{ showVocabularyPanel ? "⌃" : "⌄" }}</span>
         </button>
-        <div v-if="showVocabularyPanel" class="vocab-body">{{ vocabularyHint }}</div>
+        <div v-if="showVocabularyPanel" class="vocab-body">
+          <div class="vocab-toolbar">
+            <span>{{ vocabularyHint }}</span>
+            <button class="small-action" type="button" @click="refreshVocabularyCount">{{ ui.refreshVocabulary }}</button>
+          </div>
+          <div v-if="vocabularyEntries.length" class="vocab-table-wrap">
+            <table class="vocab-table">
+              <thead>
+                <tr>
+                  <th>{{ ui.vocabSource }}</th>
+                  <th>{{ ui.vocabTranslation }}</th>
+                  <th>{{ ui.vocabMeta }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="entry in vocabularyRows" :key="entry.id">
+                  <td>{{ entry.source }}</td>
+                  <td>
+                    <span>{{ entry.translation || "..." }}</span>
+                    <button
+                      v-if="!entry.translation"
+                      class="small-action vocab-fill"
+                      type="button"
+                      :disabled="isBackfillingVocabulary"
+                      @click="backfillVocabularyEntry(entry)"
+                    >
+                      {{ ui.backfillTranslation }}
+                    </button>
+                  </td>
+                  <td>
+                    <span>{{ entry.sourceLanguage }} -> {{ entry.targetLanguage }}</span>
+                    <small>{{ entry.windowTitle }}</small>
+                    <small>{{ entry.createdAt }}</small>
+                    <button
+                      class="small-action vocab-delete"
+                      type="button"
+                      :disabled="isDeletingVocabulary"
+                      @click="deleteVocabularyEntry(entry)"
+                    >
+                      {{ ui.deleteVocabulary }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="vocab-empty">{{ ui.vocabEmpty }}</div>
+        </div>
       </section>
 
       <footer class="status-bar">
@@ -288,6 +335,14 @@ const messages = {
     translator: "Translator",
     ocr: "OCR engine",
     vocabulary: "Vocabulary collection",
+    refreshVocabulary: "Refresh",
+    vocabSource: "Source",
+    vocabTranslation: "Translation",
+    vocabMeta: "Meta",
+    vocabEmpty: "No vocabulary collected yet.",
+    backfillTranslation: "Translate",
+    deleteVocabulary: "Delete",
+    confirmDeleteVocabulary: "Delete this vocabulary entry?",
     fontFamily: "Font",
     textStyle: "Text style",
     layoutMode: "Layout mode",
@@ -349,6 +404,14 @@ const messages = {
     translator: "翻译器",
     ocr: "OCR 引擎",
     vocabulary: "词汇收集",
+    refreshVocabulary: "刷新",
+    vocabSource: "原文",
+    vocabTranslation: "翻译",
+    vocabMeta: "信息",
+    vocabEmpty: "暂无收集词汇。",
+    backfillTranslation: "补译",
+    deleteVocabulary: "删除",
+    confirmDeleteVocabulary: "确认删除这条词汇？",
     fontFamily: "字体",
     textStyle: "文字",
     layoutMode: "布局模式",
@@ -438,6 +501,9 @@ const isTranslating = ref(false);
 const statusMessage = ref("");
 const titleDots = ref(0);
 const collectedCount = ref(0);
+const vocabularyEntries = ref([]);
+const isBackfillingVocabulary = ref(false);
+const isDeletingVocabulary = ref(false);
 const sourceTextarea = ref(null);
 const logEntries = ref([]);
 
@@ -455,7 +521,19 @@ let pendingOcrCount = 0;
 const ui = computed(() => messages[systemLanguage.value] || messages.en);
 const modelOptions = computed(() => providerModels[translator.value] || providerModels.deepseek);
 const titleHint = computed(() => `${ui.value.titleWorking}${".".repeat(titleDots.value + 1)}`);
-const vocabularyHint = computed(() => `${collectedCount.value} item(s) collected in this session.`);
+const vocabularyHint = computed(() => `${collectedCount.value} item(s) collected.`);
+const vocabularyRows = computed(() =>
+  vocabularyEntries.value.map((entry, index) => ({
+    id: `${entry.created_at || entry.createdAt || index}-${index}`,
+    source: String(entry.source || ""),
+    translation: String(entry.translation || ""),
+    sourceLanguage: String(entry.source_language || entry.sourceLanguage || ""),
+    targetLanguage: String(entry.target_language || entry.targetLanguage || ""),
+    windowTitle: String(entry.window_title || entry.windowTitle || ""),
+    createdAtRaw: String(entry.created_at || entry.createdAt || ""),
+    createdAt: formatVocabularyTime(entry.created_at || entry.createdAt || "")
+  }))
+);
 const panelFontStyle = computed(() => ({
   fontFamily: fontFamily.value,
   fontSize: `${Number.parseInt(fontSize.value, 10) || 20}px`
@@ -705,6 +783,24 @@ function increaseFont() {
 
 function decreaseFont() {
   fontSize.value = String(Math.max((Number.parseInt(fontSize.value, 10) || 20) - 1, 10));
+}
+
+function formatVocabularyTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+  return date.toLocaleString();
+}
+
+async function toggleVocabularyPanel() {
+  showVocabularyPanel.value = !showVocabularyPanel.value;
+  if (showVocabularyPanel.value) {
+    await refreshVocabularyCount();
+  }
 }
 
 function baseRequest() {
@@ -1066,7 +1162,8 @@ async function collectSelection() {
     addLog("warn", "Collect selection blocked: no selected source text.");
     return;
   }
-  await collectEntry(selected, "");
+  const translation = await translateForVocabulary(selected);
+  await collectEntry(selected, translation);
 }
 
 async function collectCurrent() {
@@ -1103,9 +1200,86 @@ async function collectEntry(source, translation) {
   }
 }
 
+async function translateForVocabulary(source) {
+  const text = source.trim();
+  if (!text) {
+    return "";
+  }
+  try {
+    const response = await invoke("translate_text_command", {
+      request: {
+        ...baseRequest(),
+        text
+      }
+    });
+    return response.translation || "";
+  } catch (error) {
+    addLog("warn", `Vocabulary translation failed: ${String(error || "unknown error")}`);
+    return "";
+  }
+}
+
+async function backfillVocabularyEntry(entry) {
+  if (!entry.source || !entry.createdAtRaw) {
+    return;
+  }
+  isBackfillingVocabulary.value = true;
+  try {
+    const translation = await translateForVocabulary(entry.source);
+    if (!translation) {
+      statusMessage.value = "Vocabulary translation returned empty text.";
+      return;
+    }
+    await invoke("update_vocabulary_command", {
+      request: {
+        createdAt: entry.createdAtRaw,
+        source: entry.source,
+        translation
+      }
+    });
+    await refreshVocabularyCount();
+    statusMessage.value = ui.value.collected;
+    addLog("info", `Vocabulary backfilled: ${entry.source}`);
+  } catch (error) {
+    const detail = String(error || "Failed to update vocabulary");
+    statusMessage.value = detail;
+    addLog("error", detail);
+  } finally {
+    isBackfillingVocabulary.value = false;
+  }
+}
+
+async function deleteVocabularyEntry(entry) {
+  if (!entry.source || !entry.createdAtRaw) {
+    return;
+  }
+  if (!window.confirm(ui.value.confirmDeleteVocabulary)) {
+    return;
+  }
+  isDeletingVocabulary.value = true;
+  try {
+    await invoke("delete_vocabulary_command", {
+      request: {
+        createdAt: entry.createdAtRaw,
+        source: entry.source
+      }
+    });
+    await refreshVocabularyCount();
+    statusMessage.value = ui.value.ready;
+    addLog("info", `Vocabulary deleted: ${entry.source}`);
+  } catch (error) {
+    const detail = String(error || "Failed to delete vocabulary");
+    statusMessage.value = detail;
+    addLog("error", detail);
+  } finally {
+    isDeletingVocabulary.value = false;
+  }
+}
+
 async function refreshVocabularyCount() {
   try {
     const response = await invoke("list_vocabulary_command");
+    vocabularyEntries.value = Array.isArray(response.entries) ? response.entries.slice().reverse() : [];
     collectedCount.value = Number(response.count) || 0;
     addLog("info", `Vocabulary loaded. total=${collectedCount.value}`);
   } catch (error) {

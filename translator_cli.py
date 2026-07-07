@@ -92,7 +92,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     subparsers.add_parser("vocabulary")
 
-    if argv and argv[0] not in {"translate", "ocr-translate", "ocr", "list-windows", "select-area", "preview-area", "collect", "vocabulary"}:
+    update_vocab_parser = subparsers.add_parser("update-vocabulary")
+    update_vocab_parser.add_argument("--created-at", required=True)
+    update_vocab_parser.add_argument("--source", required=True)
+    update_vocab_parser.add_argument("--translation", required=True)
+
+    delete_vocab_parser = subparsers.add_parser("delete-vocabulary")
+    delete_vocab_parser.add_argument("--created-at", required=True)
+    delete_vocab_parser.add_argument("--source", required=True)
+
+    if argv and argv[0] not in {"translate", "ocr-translate", "ocr", "list-windows", "select-area", "preview-area", "collect", "vocabulary", "update-vocabulary", "delete-vocabulary"}:
         argv = ["translate", *argv]
     return parser.parse_args(argv)
 
@@ -227,6 +236,43 @@ def select_area(window_title: str, hwnd: int) -> dict[str, object]:
     return result
 
 
+def update_vocabulary_entry(created_at: str, source: str, translation: str) -> dict[str, object]:
+    from realtime_game_translator import ensure_vocabulary_file
+
+    path = ensure_vocabulary_file()
+    entries = load_vocabulary_entries()
+    updated = False
+    for entry in entries:
+        if str(entry.get("created_at", "")) == created_at and str(entry.get("source", "")) == source:
+            entry["translation"] = translation
+            updated = True
+            break
+    if not updated:
+        return {"ok": False, "updated": False}
+    with open(path, "w", encoding="utf-8") as file:
+        for entry in entries:
+            file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"ok": True, "updated": True}
+
+
+def delete_vocabulary_entry(created_at: str, source: str) -> dict[str, object]:
+    from realtime_game_translator import ensure_vocabulary_file
+
+    path = ensure_vocabulary_file()
+    entries = load_vocabulary_entries()
+    remaining = [
+        entry
+        for entry in entries
+        if not (str(entry.get("created_at", "")) == created_at and str(entry.get("source", "")) == source)
+    ]
+    deleted = len(remaining) != len(entries)
+    if deleted:
+        with open(path, "w", encoding="utf-8") as file:
+            for entry in remaining:
+                file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"ok": True, "deleted": deleted}
+
+
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     command = args.command or "translate"
@@ -274,6 +320,14 @@ def main(argv: list[str]) -> int:
     if command == "vocabulary":
         entries = load_vocabulary_entries()
         print_json({"entries": entries, "count": len(entries)})
+        return 0
+
+    if command == "update-vocabulary":
+        print_json(update_vocabulary_entry(args.created_at, args.source, args.translation))
+        return 0
+
+    if command == "delete-vocabulary":
+        print_json(delete_vocabulary_entry(args.created_at, args.source))
         return 0
 
     settings = settings_from_args(args)
