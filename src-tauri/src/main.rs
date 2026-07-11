@@ -88,7 +88,10 @@ struct CollectVocabularyRequest {
 struct UpdateVocabularyRequest {
     created_at: String,
     source: String,
+    #[serde(default)]
     translation: String,
+    #[serde(default)]
+    status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -429,7 +432,9 @@ fn update_vocabulary_command(app: AppHandle, request: UpdateVocabularyRequest) -
         .arg("--source")
         .arg(&request.source)
         .arg("--translation")
-        .arg(&request.translation);
+        .arg(&request.translation)
+        .arg("--status")
+        .arg(&request.status);
     parse_json(run_python(command)?)
 }
 

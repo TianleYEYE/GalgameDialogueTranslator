@@ -254,34 +254,71 @@
             <span>{{ vocabularyHint }}</span>
             <button class="small-action" type="button" @click="refreshVocabularyCount">{{ ui.refreshVocabulary }}</button>
           </div>
-          <div v-if="vocabularyEntries.length" class="vocab-table-wrap">
-            <table class="vocab-table">
-              <thead>
-                <tr>
-                  <th>{{ ui.vocabSource }}</th>
-                  <th>{{ ui.vocabTranslation }}</th>
-                  <th>{{ ui.vocabMeta }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="entry in vocabularyRows" :key="entry.id">
-                  <td>{{ entry.source }}</td>
-                  <td>
-                    <span>{{ entry.translation || "..." }}</span>
+          <div class="vocab-filters">
+            <input v-model="vocabularySearch" :placeholder="ui.vocabSearch" />
+            <select v-model="vocabularyKindFilter">
+              <option value="all">{{ ui.vocabAllKinds }}</option>
+              <option value="word">{{ ui.vocabWords }}</option>
+              <option value="line">{{ ui.vocabLines }}</option>
+            </select>
+            <select v-model="vocabularyStatusFilter">
+              <option value="all">{{ ui.vocabAllStatuses }}</option>
+              <option v-for="option in vocabularyStatusOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+            <select v-model="vocabularyPageSize">
+              <option value="12">12 / page</option>
+              <option value="24">24 / page</option>
+              <option value="48">48 / page</option>
+            </select>
+          </div>
+          <div v-if="vocabularyEntries.length" class="vocab-results">
+            <div class="vocab-page-info">
+              <span>{{ ui.vocabShowing }} {{ pagedVocabularyRows.length }} / {{ filteredVocabularyRows.length }}</span>
+              <div class="vocab-pager">
+                <button class="small-action" type="button" :disabled="vocabularyPage <= 1" @click="vocabularyPage -= 1">
+                  {{ ui.vocabPrev }}
+                </button>
+                <span>{{ vocabularyPage }} / {{ vocabularyPageCount }}</span>
+                <button class="small-action" type="button" :disabled="vocabularyPage >= vocabularyPageCount" @click="vocabularyPage += 1">
+                  {{ ui.vocabNext }}
+                </button>
+              </div>
+            </div>
+            <div class="vocab-card-list">
+              <article v-for="entry in pagedVocabularyRows" :key="entry.id" class="vocab-card">
+                <div class="vocab-card-main">
+                  <div>
+                    <span class="vocab-label">{{ ui.vocabSource }}</span>
+                    <p class="vocab-source-text">{{ entry.source }}</p>
+                  </div>
+                  <div>
+                    <span class="vocab-label">{{ ui.vocabTranslation }}</span>
+                    <p class="vocab-translation-text">{{ entry.translation || "..." }}</p>
+                  </div>
+                </div>
+                <div class="vocab-card-footer">
+                  <div class="vocab-card-meta">
+                    <span>{{ entry.kind }}</span>
+                    <span>{{ entry.sourceLanguage }} -> {{ entry.targetLanguage }}</span>
+                    <span>{{ entry.createdAt }}</span>
+                    <span>{{ entry.windowTitle }}</span>
+                  </div>
+                  <div class="vocab-card-actions">
                     <button
-                      v-if="!entry.translation"
                       class="small-action vocab-fill"
                       type="button"
                       :disabled="isBackfillingVocabulary"
-                      @click="backfillVocabularyEntry(entry)"
+                      @click="retranslateVocabularyEntry(entry)"
                     >
-                      {{ ui.backfillTranslation }}
+                      {{ entry.translation ? ui.retranslateVocabulary : ui.backfillTranslation }}
                     </button>
-                  </td>
-                  <td>
-                    <span>{{ entry.sourceLanguage }} -> {{ entry.targetLanguage }}</span>
-                    <small>{{ entry.windowTitle }}</small>
-                    <small>{{ entry.createdAt }}</small>
+                    <select class="vocab-status-select" :value="entry.status" @change="updateVocabularyStatus(entry, $event.target.value)">
+                      <option v-for="option in vocabularyStatusOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
                     <button
                       class="small-action vocab-delete"
                       type="button"
@@ -290,10 +327,10 @@
                     >
                       {{ ui.deleteVocabulary }}
                     </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                  </div>
+                </div>
+              </article>
+            </div>
           </div>
           <div v-else class="vocab-empty">{{ ui.vocabEmpty }}</div>
         </div>
@@ -338,11 +375,25 @@ const messages = {
     refreshVocabulary: "Refresh",
     vocabSource: "Source",
     vocabTranslation: "Translation",
+    vocabStatus: "Status",
     vocabMeta: "Meta",
     vocabEmpty: "No vocabulary collected yet.",
     backfillTranslation: "Translate",
+    retranslateVocabulary: "Retranslate",
     deleteVocabulary: "Delete",
     confirmDeleteVocabulary: "Delete this vocabulary entry?",
+    vocabSearch: "Search source or translation",
+    vocabAllKinds: "All types",
+    vocabWords: "Words",
+    vocabLines: "Lines",
+    vocabAllStatuses: "All statuses",
+    vocabStatusNew: "New",
+    vocabStatusLearning: "Learning",
+    vocabStatusMastered: "Mastered",
+    vocabStatusIgnored: "Ignored",
+    vocabShowing: "Showing",
+    vocabPrev: "Prev",
+    vocabNext: "Next",
     fontFamily: "Font",
     textStyle: "Text style",
     layoutMode: "Layout mode",
@@ -407,11 +458,25 @@ const messages = {
     refreshVocabulary: "刷新",
     vocabSource: "原文",
     vocabTranslation: "翻译",
+    vocabStatus: "状态",
     vocabMeta: "信息",
     vocabEmpty: "暂无收集词汇。",
     backfillTranslation: "补译",
+    retranslateVocabulary: "重新翻译",
     deleteVocabulary: "删除",
     confirmDeleteVocabulary: "确认删除这条词汇？",
+    vocabSearch: "搜索原文或翻译",
+    vocabAllKinds: "全部类型",
+    vocabWords: "单词",
+    vocabLines: "句子",
+    vocabAllStatuses: "全部状态",
+    vocabStatusNew: "新收集",
+    vocabStatusLearning: "学习中",
+    vocabStatusMastered: "已掌握",
+    vocabStatusIgnored: "忽略",
+    vocabShowing: "显示",
+    vocabPrev: "上一页",
+    vocabNext: "下一页",
     fontFamily: "字体",
     textStyle: "文字",
     layoutMode: "布局模式",
@@ -502,6 +567,11 @@ const statusMessage = ref("");
 const titleDots = ref(0);
 const collectedCount = ref(0);
 const vocabularyEntries = ref([]);
+const vocabularySearch = ref("");
+const vocabularyKindFilter = ref("all");
+const vocabularyStatusFilter = ref("all");
+const vocabularyPage = ref(1);
+const vocabularyPageSize = ref("12");
 const isBackfillingVocabulary = ref(false);
 const isDeletingVocabulary = ref(false);
 const sourceTextarea = ref(null);
@@ -522,6 +592,12 @@ const ui = computed(() => messages[systemLanguage.value] || messages.en);
 const modelOptions = computed(() => providerModels[translator.value] || providerModels.deepseek);
 const titleHint = computed(() => `${ui.value.titleWorking}${".".repeat(titleDots.value + 1)}`);
 const vocabularyHint = computed(() => `${collectedCount.value} item(s) collected.`);
+const vocabularyStatusOptions = computed(() => [
+  { value: "new", label: ui.value.vocabStatusNew },
+  { value: "learning", label: ui.value.vocabStatusLearning },
+  { value: "mastered", label: ui.value.vocabStatusMastered },
+  { value: "ignored", label: ui.value.vocabStatusIgnored }
+]);
 const vocabularyRows = computed(() =>
   vocabularyEntries.value.map((entry, index) => ({
     id: `${entry.created_at || entry.createdAt || index}-${index}`,
@@ -530,10 +606,34 @@ const vocabularyRows = computed(() =>
     sourceLanguage: String(entry.source_language || entry.sourceLanguage || ""),
     targetLanguage: String(entry.target_language || entry.targetLanguage || ""),
     windowTitle: String(entry.window_title || entry.windowTitle || ""),
+    kind: String(entry.kind || "word"),
+    status: String(entry.status || "new"),
     createdAtRaw: String(entry.created_at || entry.createdAt || ""),
     createdAt: formatVocabularyTime(entry.created_at || entry.createdAt || "")
   }))
 );
+const filteredVocabularyRows = computed(() => {
+  const query = vocabularySearch.value.trim().toLowerCase();
+  return vocabularyRows.value.filter((entry) => {
+    const matchesQuery =
+      !query ||
+      entry.source.toLowerCase().includes(query) ||
+      entry.translation.toLowerCase().includes(query) ||
+      entry.windowTitle.toLowerCase().includes(query);
+    const matchesKind = vocabularyKindFilter.value === "all" || entry.kind === vocabularyKindFilter.value;
+    const matchesStatus = vocabularyStatusFilter.value === "all" || entry.status === vocabularyStatusFilter.value;
+    return matchesQuery && matchesKind && matchesStatus;
+  });
+});
+const vocabularyPageCount = computed(() =>
+  Math.max(Math.ceil(filteredVocabularyRows.value.length / (Number.parseInt(vocabularyPageSize.value, 10) || 12)), 1)
+);
+const pagedVocabularyRows = computed(() => {
+  const size = Number.parseInt(vocabularyPageSize.value, 10) || 12;
+  const safePage = Math.min(Math.max(vocabularyPage.value, 1), vocabularyPageCount.value);
+  const start = (safePage - 1) * size;
+  return filteredVocabularyRows.value.slice(start, start + size);
+});
 const panelFontStyle = computed(() => ({
   fontFamily: fontFamily.value,
   fontSize: `${Number.parseInt(fontSize.value, 10) || 20}px`
@@ -596,6 +696,16 @@ watch(
   ],
   scheduleSettingsSave
 );
+
+watch([vocabularySearch, vocabularyKindFilter, vocabularyStatusFilter, vocabularyPageSize], () => {
+  vocabularyPage.value = 1;
+});
+
+watch(vocabularyPageCount, (count) => {
+  if (vocabularyPage.value > count) {
+    vocabularyPage.value = count;
+  }
+});
 
 onMounted(() => {
   titleTimer = window.setInterval(() => {
@@ -1219,7 +1329,7 @@ async function translateForVocabulary(source) {
   }
 }
 
-async function backfillVocabularyEntry(entry) {
+async function retranslateVocabularyEntry(entry) {
   if (!entry.source || !entry.createdAtRaw) {
     return;
   }
@@ -1234,18 +1344,41 @@ async function backfillVocabularyEntry(entry) {
       request: {
         createdAt: entry.createdAtRaw,
         source: entry.source,
-        translation
+        translation,
+        status: entry.status
       }
     });
     await refreshVocabularyCount();
     statusMessage.value = ui.value.collected;
-    addLog("info", `Vocabulary backfilled: ${entry.source}`);
+    addLog("info", `Vocabulary retranslated: ${entry.source}`);
   } catch (error) {
     const detail = String(error || "Failed to update vocabulary");
     statusMessage.value = detail;
     addLog("error", detail);
   } finally {
     isBackfillingVocabulary.value = false;
+  }
+}
+
+async function updateVocabularyStatus(entry, status) {
+  if (!entry.source || !entry.createdAtRaw) {
+    return;
+  }
+  try {
+    await invoke("update_vocabulary_command", {
+      request: {
+        createdAt: entry.createdAtRaw,
+        source: entry.source,
+        translation: entry.translation,
+        status
+      }
+    });
+    await refreshVocabularyCount();
+    addLog("info", `Vocabulary status updated: ${entry.source} -> ${status}`);
+  } catch (error) {
+    const detail = String(error || "Failed to update vocabulary status");
+    statusMessage.value = detail;
+    addLog("error", detail);
   }
 }
 

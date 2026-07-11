@@ -95,7 +95,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     update_vocab_parser = subparsers.add_parser("update-vocabulary")
     update_vocab_parser.add_argument("--created-at", required=True)
     update_vocab_parser.add_argument("--source", required=True)
-    update_vocab_parser.add_argument("--translation", required=True)
+    update_vocab_parser.add_argument("--translation", default=None)
+    update_vocab_parser.add_argument("--status", default=None)
 
     delete_vocab_parser = subparsers.add_parser("delete-vocabulary")
     delete_vocab_parser.add_argument("--created-at", required=True)
@@ -236,7 +237,7 @@ def select_area(window_title: str, hwnd: int) -> dict[str, object]:
     return result
 
 
-def update_vocabulary_entry(created_at: str, source: str, translation: str) -> dict[str, object]:
+def update_vocabulary_entry(created_at: str, source: str, translation: str | None = None, status: str | None = None) -> dict[str, object]:
     from realtime_game_translator import ensure_vocabulary_file
 
     path = ensure_vocabulary_file()
@@ -244,7 +245,10 @@ def update_vocabulary_entry(created_at: str, source: str, translation: str) -> d
     updated = False
     for entry in entries:
         if str(entry.get("created_at", "")) == created_at and str(entry.get("source", "")) == source:
-            entry["translation"] = translation
+            if translation is not None:
+                entry["translation"] = translation
+            if status is not None:
+                entry["status"] = status
             updated = True
             break
     if not updated:
@@ -311,6 +315,7 @@ def main(argv: list[str]) -> int:
                 "kind": args.kind,
                 "note": args.note,
                 "tags": [tag.strip() for tag in args.tags.split(",") if tag.strip()],
+                "status": "new",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -323,7 +328,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     if command == "update-vocabulary":
-        print_json(update_vocabulary_entry(args.created_at, args.source, args.translation))
+        print_json(update_vocabulary_entry(args.created_at, args.source, args.translation, args.status))
         return 0
 
     if command == "delete-vocabulary":
