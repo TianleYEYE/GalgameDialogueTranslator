@@ -421,6 +421,7 @@ const messages = {
     watching: "Watching subtitle area...",
     noNewText: "No new subtitle text.",
     gameWindowClosed: "Game window closed. Auto translation stopped.",
+    previewWindowMissing: "Selected game window is not visible. Window list refreshed.",
     refreshing: "Refreshing windows...",
     windowsLoaded: "Window list refreshed.",
     selectingArea: "Drag over the game subtitle area...",
@@ -504,6 +505,7 @@ const messages = {
     watching: "正在监听字幕区域...",
     noNewText: "暂无新字幕。",
     gameWindowClosed: "游戏窗口已关闭，已自动停止翻译。",
+    previewWindowMissing: "所选游戏窗口不可见，已刷新窗口列表。",
     refreshing: "正在刷新窗口...",
     windowsLoaded: "窗口列表已刷新。",
     selectingArea: "请在游戏字幕区域拖拽选区...",
@@ -603,6 +605,7 @@ const vocabularyRows = computed(() =>
     id: `${entry.created_at || entry.createdAt || index}-${index}`,
     source: String(entry.source || ""),
     translation: String(entry.translation || ""),
+    sourceContext: String(entry.source_context || entry.sourceContext || ""),
     sourceLanguage: String(entry.source_language || entry.sourceLanguage || ""),
     targetLanguage: String(entry.target_language || entry.targetLanguage || ""),
     windowTitle: String(entry.window_title || entry.windowTitle || ""),
@@ -1161,6 +1164,15 @@ async function refreshCapturePreview() {
     previewImage.value = response.data_url || "";
     addLog("info", `Preview captured: ${response.width}x${response.height} from window ${response.window_width || "?"}x${response.window_height || "?"}.`);
   } catch (error) {
+    if (isWindowMissingError(error)) {
+      previewImage.value = "";
+      selectedWindowHwnd.value = 0;
+      selectedWindowLabel.value = "";
+      statusMessage.value = ui.value.previewWindowMissing;
+      addLog("warn", ui.value.previewWindowMissing);
+      await refreshWindows();
+      return;
+    }
     addLog("error", `Preview failed: ${String(error || "unknown error")}`);
   } finally {
     isPreviewing.value = false;
@@ -1272,7 +1284,7 @@ async function collectSelection() {
     addLog("warn", "Collect selection blocked: no selected source text.");
     return;
   }
-  const translation = await translateForVocabulary(selected);
+  const translation = await translateForVocabulary(selected, sourceText.value, translatedText.value);
   await collectEntry(selected, translation);
 }
 
@@ -1292,6 +1304,7 @@ async function collectEntry(source, translation) {
       request: {
         source,
         translation,
+        sourceContext: sourceText.value.trim(),
         sourceLanguage: leftOutput.value,
         targetLanguage: rightOutput.value,
         windowTitle: windowTitle.value,
@@ -1310,7 +1323,26 @@ async function collectEntry(source, translation) {
   }
 }
 
-async function translateForVocabulary(source) {
+function vocabularyTranslationPrompt(source, sourceContext = "", translatedContext = "") {
+  const term = source.trim();
+  const context = sourceContext.trim();
+  const translated = translatedContext.trim();
+  if (!context || context === term) {
+    return term;
+  }
+  return [
+    "Translate the selected vocabulary item according to its meaning in the visual novel line.",
+    "Return only the vocabulary translation, not the full sentence.",
+    "",
+    `Selected item: ${term}`,
+    `Original line: ${context}`,
+    translated ? `Existing line translation: ${translated}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function translateForVocabulary(source, sourceContext = "", translatedContext = "") {
   const text = source.trim();
   if (!text) {
     return "";
@@ -1319,7 +1351,7 @@ async function translateForVocabulary(source) {
     const response = await invoke("translate_text_command", {
       request: {
         ...baseRequest(),
-        text
+        text: vocabularyTranslationPrompt(text, sourceContext, translatedContext)
       }
     });
     return response.translation || "";
@@ -1335,7 +1367,7 @@ async function retranslateVocabularyEntry(entry) {
   }
   isBackfillingVocabulary.value = true;
   try {
-    const translation = await translateForVocabulary(entry.source);
+    const translation = await translateForVocabulary(entry.source, entry.sourceContext || sourceText.value, translatedText.value);
     if (!translation) {
       statusMessage.value = "Vocabulary translation returned empty text.";
       return;

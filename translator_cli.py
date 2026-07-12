@@ -83,6 +83,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     collect_parser = subparsers.add_parser("collect")
     collect_parser.add_argument("--source", required=True)
     collect_parser.add_argument("--translation", default="")
+    collect_parser.add_argument("--source-context", default="")
     collect_parser.add_argument("--source-language", default="")
     collect_parser.add_argument("--target-language", default="")
     collect_parser.add_argument("--window-title", default="")
@@ -309,6 +310,7 @@ def main(argv: list[str]) -> int:
             {
                 "source": args.source,
                 "translation": args.translation,
+                "source_context": args.source_context,
                 "source_language": args.source_language,
                 "target_language": args.target_language,
                 "window_title": args.window_title,

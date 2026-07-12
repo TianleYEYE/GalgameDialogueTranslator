@@ -6,6 +6,12 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use tauri::{AppHandle, Manager};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TranslateRequest {
@@ -75,6 +81,8 @@ struct WindowListResponse {
 struct CollectVocabularyRequest {
     source: String,
     translation: String,
+    #[serde(default)]
+    source_context: String,
     source_language: String,
     target_language: String,
     window_title: String,
@@ -239,6 +247,8 @@ fn python_command(app: &AppHandle) -> Result<Command, String> {
     command.arg("translator_cli.py");
     command.current_dir(bridge_dir(app)?);
     command.env("GDT_VOCABULARY_PATH", vocabulary_path(app)?);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
     Ok(command)
 }
 
@@ -386,6 +396,8 @@ fn collect_vocabulary_command(app: AppHandle, request: CollectVocabularyRequest)
         .arg(&request.source)
         .arg("--translation")
         .arg(&request.translation)
+        .arg("--source-context")
+        .arg(&request.source_context)
         .arg("--source-language")
         .arg(&request.source_language)
         .arg("--target-language")
