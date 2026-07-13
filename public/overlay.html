@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>天楽 翻译字幕</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      body {
+        user-select: none;
+      }
+
+      #player {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #toolbar {
+        position: absolute;
+        top: 6px;
+        right: 10px;
+        z-index: 2;
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+        background: rgba(18, 18, 18, 0.72);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
+        opacity: 0;
+        transform: translateY(-4px);
+        transition: opacity 140ms ease, transform 140ms ease;
+      }
+
+      #player:hover #toolbar,
+      #toolbar:focus-within {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      #toolbar button {
+        width: 26px;
+        height: 24px;
+        padding: 0;
+        color: #fff;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        cursor: pointer;
+        font: 800 14px/24px "Segoe UI", sans-serif;
+      }
+
+      #toolbar button:hover,
+      #toolbar button:focus-visible {
+        background: rgba(255, 255, 255, 0.16);
+        outline: none;
+      }
+
+      #viewport {
+        width: 100%;
+        padding: 34px 24px 12px;
+        overflow: hidden;
+        cursor: move;
+      }
+
+      #translation {
+        display: inline-block;
+        min-width: 100%;
+        color: #3baeff;
+        font-family: "Microsoft YaHei UI", sans-serif;
+        font-size: 24px;
+        font-weight: 800;
+        line-height: 1.4;
+        text-align: center;
+        letter-spacing: 0;
+        -webkit-text-stroke: 1.5px rgba(8, 15, 22, 0.96);
+        paint-order: stroke fill;
+        background: linear-gradient(180deg, #b9ecff 0%, #43b7ff 46%, #1688e5 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.42),
+          0 3px 7px rgba(0, 0, 0, 0.92);
+        white-space: nowrap;
+      }
+
+      #viewport.changed {
+        animation: lyric-in 220ms ease-out;
+      }
+
+      #translation.scrolling {
+        min-width: max-content;
+        animation: danmaku-scroll var(--scroll-duration, 12s) linear infinite;
+      }
+
+      @keyframes lyric-in {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes danmaku-scroll {
+        from {
+          transform: translateX(100vw);
+        }
+        to {
+          transform: translateX(-100%);
+        }
+      }
+    </style>
+  </head>
+  <body title="Drag the lyrics to move. Right-click or press Esc to hide.">
+    <main id="player">
+      <div id="toolbar">
+        <button id="smaller" type="button" title="Smaller text" aria-label="Smaller text">-</button>
+        <button id="larger" type="button" title="Larger text" aria-label="Larger text">+</button>
+        <button id="close" type="button" title="Hide lyrics" aria-label="Hide lyrics">x</button>
+      </div>
+      <div id="viewport" data-tauri-drag-region>
+        <div id="translation" data-tauri-drag-region>Waiting for translation...</div>
+      </div>
+    </main>
+    <script>
+      let baseFontSize = 24;
+      let fontOffset = 0;
+      let previousText = "";
+      let previousFontFamily = "";
+      let previousBaseFontSize = 0;
+      let scrollFrame = 0;
+      let saveBoundsTimer = 0;
+
+      const applyFontSize = () => {
+        const target = document.getElementById("translation");
+        const nextSize = `${Math.max(baseFontSize + fontOffset, 12)}px`;
+        if (target.style.fontSize !== nextSize) {
+          target.style.fontSize = nextSize;
+          updateScrollMode();
+        }
+      };
+
+      const updateScrollMode = () => {
+        const viewport = document.getElementById("viewport");
+        const target = document.getElementById("translation");
+        if (scrollFrame) {
+          window.cancelAnimationFrame(scrollFrame);
+        }
+        target.classList.remove("scrolling");
+        target.style.removeProperty("--scroll-duration");
+        scrollFrame = window.requestAnimationFrame(() => {
+          const textWidth = target.scrollWidth;
+          const viewportWidth = viewport.clientWidth;
+          if (textWidth > viewportWidth + 24) {
+            const distance = viewportWidth + textWidth;
+            const duration = Math.max(distance / 72, 9);
+            target.style.setProperty("--scroll-duration", `${duration}s`);
+            target.classList.add("scrolling");
+          }
+          scrollFrame = 0;
+        });
+      };
+
+      window.__setOverlayState = (state) => {
+        const target = document.getElementById("translation");
+        const viewport = document.getElementById("viewport");
+        const nextText = state.text || "Waiting for translation...";
+        let layoutChanged = false;
+        if (nextText !== previousText) {
+          target.textContent = nextText;
+          viewport.classList.remove("changed");
+          void viewport.offsetWidth;
+          viewport.classList.add("changed");
+          previousText = nextText;
+          layoutChanged = true;
+        }
+        const nextFontFamily = state.fontFamily || "Microsoft YaHei UI";
+        if (nextFontFamily !== previousFontFamily) {
+          target.style.fontFamily = nextFontFamily;
+          previousFontFamily = nextFontFamily;
+          layoutChanged = true;
+        }
+        const nextBaseFontSize = Number(state.fontSize) || 24;
+        if (nextBaseFontSize !== previousBaseFontSize) {
+          baseFontSize = nextBaseFontSize;
+          previousBaseFontSize = nextBaseFontSize;
+          layoutChanged = true;
+        }
+        if (layoutChanged) {
+          applyFontSize();
+          updateScrollMode();
+        }
+      };
+
+      const hideOverlay = () => {
+        window.__TAURI_INTERNALS__?.invoke("hide_translation_overlay_command").catch(() => {});
+      };
+
+      const refreshOverlay = async () => {
+        try {
+          const state = await window.__TAURI_INTERNALS__?.invoke("get_translation_overlay_state_command");
+          if (state) window.__setOverlayState(state);
+        } catch (_) {
+          // Keep the last visible translation when a refresh is temporarily unavailable.
+        }
+      };
+
+      window.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        hideOverlay();
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") hideOverlay();
+      });
+      document.getElementById("smaller").addEventListener("click", () => {
+        fontOffset = Math.max(fontOffset - 2, -12);
+        applyFontSize();
+      });
+      document.getElementById("larger").addEventListener("click", () => {
+        fontOffset = Math.min(fontOffset + 2, 32);
+        applyFontSize();
+      });
+      document.getElementById("close").addEventListener("click", hideOverlay);
+      document.getElementById("viewport").addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 || event.target.closest("button")) return;
+        event.preventDefault();
+        window.__TAURI_INTERNALS__
+          ?.invoke("start_translation_overlay_drag_command")
+          .catch((error) => console.error("Overlay drag failed", error));
+      });
+      window.addEventListener("resize", () => {
+        window.clearTimeout(saveBoundsTimer);
+        saveBoundsTimer = window.setTimeout(() => {
+          window.__TAURI_INTERNALS__
+            ?.invoke("save_translation_overlay_bounds_command")
+            .catch((error) => console.error("Overlay bounds save failed", error));
+        }, 250);
+      });
+      new ResizeObserver(updateScrollMode).observe(document.getElementById("viewport"));
+      refreshOverlay();
+      window.setInterval(refreshOverlay, 1000);
+    </script>
+  </body>
+</html>

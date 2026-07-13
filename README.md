@@ -1,4 +1,4 @@
-# GalgameDialogueTranslator
+# 天楽 Galgame 翻译器
 
 <p align="center">
   <a href="#中文说明"><img alt="中文" src="https://img.shields.io/badge/语言-中文-blue?style=for-the-badge"></a>
@@ -11,7 +11,7 @@
 
 ## 中文说明
 
-GalgameDialogueTranslator 是一个面向 Windows 的视觉小说 / Galgame 对话翻译悬浮窗工具。
+天楽 Galgame 翻译器是一个面向 Windows 的视觉小说 / Galgame 对话翻译悬浮窗工具。
 
 它会截取游戏窗口中的字幕区域，使用 OCR 识别文字，再调用翻译后端，把译文显示在一个置顶窗口中。它不会修改游戏文件，不会注入游戏进程，也不会 patch 内存。
 
@@ -19,9 +19,9 @@ GalgameDialogueTranslator 是一个面向 Windows 的视觉小说 / Galgame 对�
 
 普通用户建议直接使用 Release 里的打包版本，不需要从源码运行。
 
-1. 从 GitHub Release 下载 `GalgameDialogueTranslator.exe`。
+1. 从 GitHub Release 下载 `Tengaku-Galgame-Translator.exe`。
 2. 如果 OCR 无法工作，请安装 [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki)。
-3. 双击运行 `GalgameDialogueTranslator.exe`。
+3. 双击运行 `Tengaku-Galgame-Translator.exe`。
 4. 将游戏设置为窗口化或无边框窗口模式。
 5. 在程序中选择游戏窗口：
    - 点击 `Refresh windows` 刷新当前可见窗口。
@@ -158,7 +158,7 @@ $env:XAI_API_KEY = "your_xai_api_key"
 输出文件：
 
 ```text
-dist\GalgameDialogueTranslator.exe
+dist\TengakuGalgameTranslator.exe
 ```
 
 ### API Key 文件
@@ -203,7 +203,7 @@ dist\GalgameDialogueTranslator.exe
 
 ## English README
 
-GalgameDialogueTranslator is a Windows overlay translator for visual novels, galgames, and other dialogue-heavy games.
+Tengaku Galgame Translator is a Windows overlay translator for visual novels, galgames, and other dialogue-heavy games.
 
 It captures a selected subtitle area from the game window, runs OCR, sends the recognized text to a translation backend, and displays the translated text in a separate always-on-top window. It does not modify game files, inject into the game process, or patch memory.
 
@@ -211,9 +211,9 @@ It captures a selected subtitle area from the game window, runs OCR, sends the r
 
 Most users should use the packaged release instead of running from source.
 
-1. Download `GalgameDialogueTranslator.exe` from the GitHub Release page.
+1. Download `Tengaku-Galgame-Translator.exe` from the GitHub Release page.
 2. Install [Tesseract OCR for Windows](https://github.com/UB-Mannheim/tesseract/wiki) if OCR does not work.
-3. Double-click `GalgameDialogueTranslator.exe`.
+3. Double-click `Tengaku-Galgame-Translator.exe`.
 4. Open your game in windowed or borderless-window mode.
 5. Select the game window in the app:
    - Click `Refresh windows` to refresh visible windows.
@@ -350,7 +350,7 @@ To build a single-file Windows executable:
 Output:
 
 ```text
-dist\GalgameDialogueTranslator.exe
+dist\TengakuGalgameTranslator.exe
 ```
 
 ### API Key Files

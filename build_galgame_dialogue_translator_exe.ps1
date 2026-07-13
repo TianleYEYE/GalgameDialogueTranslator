@@ -19,7 +19,8 @@ $DistDir = Join-Path $ScriptDir 'dist'
     --windowed `
     --onefile `
     --noupx `
-    --name "GalgameDialogueTranslator" `
+    --name "TengakuGalgameTranslator" `
+    --icon ".\src-tauri\icons\icon.ico" `
     --collect-submodules win32com `
     --hidden-import win32timezone `
     --hidden-import PIL.Image `
@@ -30,4 +31,4 @@ $DistDir = Join-Path $ScriptDir 'dist'
 
 Write-Host ''
 Write-Host 'Built:'
-Write-Host (Join-Path $DistDir 'GalgameDialogueTranslator.exe')
+Write-Host (Join-Path $DistDir 'TengakuGalgameTranslator.exe')

@@ -49,7 +49,7 @@ ORIGINAL_OCR_LANGUAGE = "Original OCR"
 DEFAULT_OUTPUT_LEFT_LANGUAGE = ORIGINAL_OCR_LANGUAGE
 DEFAULT_OUTPUT_RIGHT_LANGUAGE = "Simplified Chinese"
 DEFAULT_OUTPUT_LAYOUT = "horizontal"
-BASE_WINDOW_TITLE = "Game Dialogue Translator"
+BASE_WINDOW_TITLE = "天楽 Galgame 翻译器"
 DEFAULT_UI_LANGUAGE = "auto"
 VOCABULARY_FILENAME = "vocabulary.jsonl"
 OUTPUT_LANGUAGE_OPTIONS = (
@@ -63,7 +63,7 @@ OUTPUT_LANGUAGE_OPTIONS = (
 OUTPUT_LAYOUT_OPTIONS = ("horizontal", "vertical")
 UI_LANGUAGE_OPTIONS = ("auto", "zh-CN", "en")
 OCR_SIMILARITY_THRESHOLD = 0.78
-WIKI_USER_AGENT = "GalgameDialogueTranslator/0.1 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
+WIKI_USER_AGENT = "TengakuGalgameTranslator/0.3 (https://github.com/TianleYEYE/GalgameDialogueTranslator)"
 UI_COLORS = {
     "bg": "#F4EFE6",
     "panel": "#FBF8F2",
@@ -115,7 +115,7 @@ OUTPUT_LANGUAGE_LABELS = {
 
 UI_STRINGS = {
     "en": {
-        "app_title": "Game Dialogue Translator",
+        "app_title": "天楽 Galgame 翻译器",
         "label_window_title": "Window title",
         "button_refresh_windows": "Refresh windows",
         "button_place_beside": "Place beside",
@@ -560,7 +560,12 @@ def find_window_by_reference(title_part: str = "", hwnd: int | None = None) -> W
 
 
 def list_capture_windows() -> list[WindowInfo]:
-    blocked_titles = {"Program Manager", "Game Dialogue Translator", "GalgameDialogueTranslator"}
+    blocked_titles = {
+        "Program Manager",
+        "天楽 Galgame 翻译器",
+        "TengakuGalgameTranslator",
+        "GDT Translation Overlay",
+    }
     windows: list[WindowInfo] = []
 
     def visit(hwnd: int, _extra: object) -> bool:

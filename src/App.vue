@@ -14,6 +14,16 @@
         <button class="btn btn-ghost" :disabled="isTranslating" @click="refreshWindows">
           {{ ui.refreshWindows }}
         </button>
+        <button class="btn btn-primary overlay-toggle" type="button" @click="toggleTranslationOverlay">
+          {{ overlayVisible ? ui.hideOverlay : ui.showOverlay }}
+        </button>
+        <label class="stream-overlay-toggle" :title="overlayCaptureHint">
+          <input v-model="overlayCaptureVisible" type="checkbox" />
+          <span>{{ overlayCaptureLabel }}</span>
+        </label>
+        <button class="btn btn-ghost" type="button" @click="resetOverlayPosition">
+          {{ overlayResetLabel }}
+        </button>
         <button class="btn btn-ghost" type="button" @click="togglePlaceHint">
           {{ ui.placeBeside }}
         </button>
@@ -344,12 +354,43 @@
         <span class="push-end">{{ ui.versionLatest }}</span>
       </footer>
     </main>
+
+    <section v-if="isSelectingArea" class="area-selector-backdrop">
+      <div class="area-selector-dialog">
+        <div class="area-selector-head">
+          <strong>{{ ui.selectingArea }}</strong>
+          <button class="small-action" type="button" @click="cancelCaptureAreaSelection">{{ ui.stop }}</button>
+        </div>
+        <div
+          class="area-selector-frame"
+          @pointerdown="beginCaptureAreaSelection"
+          @pointermove="moveCaptureAreaSelection"
+          @pointerup="finishCaptureAreaSelection"
+          @pointercancel="cancelCaptureAreaSelection"
+        >
+          <img ref="selectionImageElement" :src="selectionImage" alt="Full game window preview" draggable="false" />
+          <div
+            v-if="selectionBox"
+            class="area-selection-box"
+            :style="{
+              left: `${selectionBox.x * 100}%`,
+              top: `${selectionBox.y * 100}%`,
+              width: `${selectionBox.width * 100}%`,
+              height: `${selectionBox.height * 100}%`
+            }"
+          ></div>
+        </div>
+        <span class="area-selector-hint">{{ ui.areaSelectorHint }}</span>
+      </div>
+    </section>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { buildOverlayGeometry, normalizeOverlayBounds } from "./overlay-state.js";
 
 const messages = {
   en: {
@@ -425,6 +466,7 @@ const messages = {
     refreshing: "Refreshing windows...",
     windowsLoaded: "Window list refreshed.",
     selectingArea: "Drag over the game subtitle area...",
+    areaSelectorHint: "Drag on the screenshot to select the subtitle area.",
     areaUpdated: "Capture area updated.",
     refreshPreview: "Refresh preview",
     previewing: "Capturing...",
@@ -434,7 +476,12 @@ const messages = {
     settingsSaved: "Local settings saved.",
     placeHint: "Use the native window controls to place this beside the game.",
     versionLatest: "Current version is latest",
-    titleWorking: "Translating..."
+    titleWorking: "Translating...",
+    showOverlay: "Show translation overlay",
+    hideOverlay: "Hide translation overlay",
+    overlayDecrease: "Decrease overlay size",
+    overlayIncrease: "Increase overlay size",
+    overlayClose: "Hide overlay"
   },
   "zh-CN": {
     gameWindow: "游戏窗口",
@@ -509,6 +556,7 @@ const messages = {
     refreshing: "正在刷新窗口...",
     windowsLoaded: "窗口列表已刷新。",
     selectingArea: "请在游戏字幕区域拖拽选区...",
+    areaSelectorHint: "请在游戏截图上拖拽选择字幕区域。",
     areaUpdated: "捕获区域已更新。",
     refreshPreview: "刷新预览",
     previewing: "截图中...",
@@ -518,7 +566,12 @@ const messages = {
     settingsSaved: "已保存本地配置。",
     placeHint: "请使用系统窗口功能将本窗口放到游戏旁边。",
     versionLatest: "当前版本最新",
-    titleWorking: "正在翻译..."
+    titleWorking: "正在翻译...",
+    showOverlay: "显示翻译小窗",
+    hideOverlay: "隐藏翻译小窗",
+    overlayDecrease: "缩小小窗",
+    overlayIncrease: "放大小窗",
+    overlayClose: "隐藏小窗"
   }
 };
 
@@ -534,6 +587,12 @@ const showProviderPanel = ref(false);
 const showDisplayPanel = ref(false);
 const showVocabularyPanel = ref(false);
 const showLogPanel = ref(true);
+const overlayVisible = ref(false);
+const overlayX = ref(null);
+const overlayY = ref(null);
+const overlayWidth = ref(0);
+const overlayHeight = ref(0);
+const overlayCaptureVisible = ref(false);
 const windowTitle = ref("");
 const selectedWindowHwnd = ref(0);
 const selectedWindowLabel = ref("");
@@ -577,6 +636,10 @@ const vocabularyPageSize = ref("12");
 const isBackfillingVocabulary = ref(false);
 const isDeletingVocabulary = ref(false);
 const sourceTextarea = ref(null);
+const isSelectingArea = ref(false);
+const selectionImage = ref("");
+const selectionImageElement = ref(null);
+const selectionBox = ref(null);
 const logEntries = ref([]);
 
 let titleTimer = null;
@@ -589,8 +652,22 @@ let autoTranslateTimer = null;
 let lastAutoSourceText = "";
 let pendingOcrText = "";
 let pendingOcrCount = 0;
+let overlayUnlisteners = [];
+let captureAreaSelectionStart = null;
+let captureAreaSelectionResume = null;
 
 const ui = computed(() => messages[systemLanguage.value] || messages.en);
+const overlayCaptureLabel = computed(() =>
+  systemLanguage.value === "zh-CN" ? "允许截图/串流" : "Show in capture"
+);
+const overlayCaptureHint = computed(() =>
+  systemLanguage.value === "zh-CN"
+    ? "允许截图、录屏、OBS 和串流软件捕获字幕。请将字幕放在 OCR 区域之外，避免重复识别。"
+    : "Allow screenshots, recording, OBS, and streaming software to capture the overlay. Keep it outside the OCR area to avoid repeated recognition."
+);
+const overlayResetLabel = computed(() =>
+  systemLanguage.value === "zh-CN" ? "重置小窗位置" : "Reset overlay"
+);
 const modelOptions = computed(() => providerModels[translator.value] || providerModels.deepseek);
 const titleHint = computed(() => `${ui.value.titleWorking}${".".repeat(titleDots.value + 1)}`);
 const vocabularyHint = computed(() => `${collectedCount.value} item(s) collected.`);
@@ -641,15 +718,29 @@ const panelFontStyle = computed(() => ({
   fontFamily: fontFamily.value,
   fontSize: `${Number.parseInt(fontSize.value, 10) || 20}px`
 }));
+const selectedWindow = computed(() =>
+  windowOptions.value.find((item) => Number(item.hwnd) === Number(selectedWindowHwnd.value)) || null
+);
 
 watch(isTranslating, (active) => {
-  document.title = active ? `(${titleHint.value}) Game Dialogue Translator` : "Game Dialogue Translator";
+  document.title = active ? `(${titleHint.value}) 天楽 Galgame 翻译器` : "天楽 Galgame 翻译器";
 });
 
 watch(titleDots, () => {
   if (isTranslating.value) {
-    document.title = `(${titleHint.value}) Game Dialogue Translator`;
+    document.title = `(${titleHint.value}) 天楽 Galgame 翻译器`;
   }
+});
+
+watch(overlayCaptureVisible, (active) => {
+  if (!active || applyingSettings) {
+    return;
+  }
+  const warning = systemLanguage.value === "zh-CN"
+    ? "串流捕获已开启：请将翻译字幕移出 OCR 选区，避免字幕被重复识别。"
+    : "Stream capture is enabled. Keep the overlay outside the OCR area to avoid repeated recognition.";
+  statusMessage.value = warning;
+  addLog("warn", warning);
 });
 
 watch(translator, (provider) => {
@@ -695,7 +786,12 @@ watch(
     cropLeft,
     cropTop,
     cropRight,
-    cropBottom
+    cropBottom,
+    overlayCaptureVisible,
+    overlayX,
+    overlayY,
+    overlayWidth,
+    overlayHeight
   ],
   scheduleSettingsSave
 );
@@ -710,14 +806,34 @@ watch(vocabularyPageCount, (count) => {
   }
 });
 
-onMounted(() => {
+onMounted(async () => {
+  listen("overlay-bounds-changed", (event) => {
+    const bounds = normalizeOverlayBounds(event.payload);
+    overlayX.value = bounds.x;
+    overlayY.value = bounds.y;
+    overlayWidth.value = bounds.width || overlayWidth.value;
+    overlayHeight.value = bounds.height || overlayHeight.value;
+  }).then((unlisten) => {
+    overlayUnlisteners.push(unlisten);
+  });
+  listen("overlay-hidden", () => {
+    overlayVisible.value = false;
+  }).then((unlisten) => {
+    overlayUnlisteners.push(unlisten);
+  });
+  listen("overlay-maintenance-error", (event) => {
+    addLog("warn", `Overlay maintenance: ${String(event.payload || "unknown error")}`);
+  }).then((unlisten) => {
+    overlayUnlisteners.push(unlisten);
+  });
   titleTimer = window.setInterval(() => {
     titleDots.value = (titleDots.value + 1) % 3;
   }, 450);
-  bootApp();
+  await bootApp();
 });
 
 onUnmounted(() => {
+  overlayUnlisteners.forEach((unlisten) => unlisten());
   if (titleTimer) {
     window.clearInterval(titleTimer);
   }
@@ -770,7 +886,12 @@ function settingsSnapshot() {
     cropLeft: cropLeft.value,
     cropTop: cropTop.value,
     cropRight: cropRight.value,
-    cropBottom: cropBottom.value
+    cropBottom: cropBottom.value,
+    overlayCaptureVisible: overlayCaptureVisible.value,
+    overlayX: overlayX.value,
+    overlayY: overlayY.value,
+    overlayWidth: overlayWidth.value,
+    overlayHeight: overlayHeight.value
   };
 }
 
@@ -813,6 +934,19 @@ function applySettings(settings) {
   if (typeof settings.lockCurrentLine === "boolean") {
     lockCurrentLine.value = settings.lockCurrentLine;
   }
+  if (typeof settings.overlayCaptureVisible === "boolean") {
+    overlayCaptureVisible.value = settings.overlayCaptureVisible;
+  }
+  const savedOverlayBounds = normalizeOverlayBounds({
+    x: settings.overlayX,
+    y: settings.overlayY,
+    width: settings.overlayWidth,
+    height: settings.overlayHeight
+  });
+  overlayX.value = savedOverlayBounds.x;
+  overlayY.value = savedOverlayBounds.y;
+  overlayWidth.value = savedOverlayBounds.width || 0;
+  overlayHeight.value = savedOverlayBounds.height || 0;
   window.setTimeout(() => {
     applyingSettings = false;
   }, 0);
@@ -1020,6 +1154,10 @@ function isWindowMissingError(error) {
 async function stopBecauseGameWindowClosed(error) {
   stopAutoTranslateLoop();
   isTranslating.value = false;
+  if (overlayVisible.value) {
+    await invoke("hide_translation_overlay_command").catch(() => {});
+    overlayVisible.value = false;
+  }
   resetOcrStability();
   statusMessage.value = ui.value.gameWindowClosed;
   selectedWindowHwnd.value = 0;
@@ -1037,6 +1175,109 @@ function scheduleNextAutoTranslate(token) {
   }, intervalDelay());
 }
 
+function overlayRequest() {
+  const crop = cropRequest();
+  const geometry = buildOverlayGeometry({
+    game: selectedWindow.value,
+    crop,
+    fontSize: fontSize.value,
+    savedBounds: {
+      x: overlayX.value,
+      y: overlayY.value,
+      width: overlayWidth.value,
+      height: overlayHeight.value
+    }
+  });
+  return {
+    text: translatedText.value || "",
+    language: rightOutput.value,
+    fontFamily: fontFamily.value,
+    fontSize: Math.max(Number.parseInt(fontSize.value, 10) || 20, 12),
+    captureVisible: overlayCaptureVisible.value,
+    ...geometry
+  };
+}
+
+function invokeOverlayCommand(command, args = {}, timeoutMs = 1200) {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    invoke(command, args).then(
+      (result) => {
+        window.clearTimeout(timer);
+        resolve(result);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function syncTranslationOverlay(ensureVisible = false) {
+  if ((!ensureVisible && !overlayVisible.value) || !selectedWindow.value) {
+    return false;
+  }
+  try {
+    const command = ensureVisible
+      ? "show_translation_overlay_command"
+      : "update_translation_overlay_command";
+    const request = overlayRequest();
+    addLog("info", `Overlay command started: ${command}, textLength=${request.text.length}`);
+    await invokeOverlayCommand(command, { request }, ensureVisible ? 3000 : 1200);
+    addLog("info", `Overlay command finished: ${command}`);
+    return true;
+  } catch (error) {
+    addLog("error", `Translation overlay failed: ${String(error || "unknown error")}`);
+    return false;
+  }
+}
+
+async function toggleTranslationOverlay() {
+  if (overlayVisible.value) {
+    addLog("info", "Overlay hide requested by main window.");
+    await invokeOverlayCommand("hide_translation_overlay_command").catch((error) => {
+      addLog("warn", `Overlay hide failed: ${String(error || "unknown error")}`);
+    });
+    overlayVisible.value = false;
+    addLog("info", "Translation overlay hidden.");
+    return;
+  }
+  if (!windowTitle.value.trim() || !selectedWindow.value) {
+    statusMessage.value = ui.value.noWindow;
+    addLog("warn", "Translation overlay blocked: no visible game window selected.");
+    return;
+  }
+  const initialRequest = overlayRequest();
+  overlayWidth.value = initialRequest.width;
+  overlayHeight.value = initialRequest.height;
+  addLog("info", `Overlay show requested. position=${initialRequest.x},${initialRequest.y}, size=${initialRequest.width}x${initialRequest.height}`);
+  const overlayShown = await syncTranslationOverlay(true);
+  if (!overlayShown) {
+    statusMessage.value = "Translation overlay could not be opened. Check run logs.";
+    return;
+  }
+  overlayVisible.value = true;
+  addLog("info", "Translation overlay shown.");
+}
+
+async function resetOverlayPosition() {
+  overlayX.value = null;
+  overlayY.value = null;
+  overlayWidth.value = 0;
+  overlayHeight.value = 0;
+  if (overlayVisible.value) {
+    await syncTranslationOverlay(true);
+  }
+  addLog("info", "Overlay position reset to the selected game window.");
+}
+
+watch([translatedText, rightOutput, fontFamily, fontSize, overlayCaptureVisible], () => {
+  syncTranslationOverlay();
+});
+
 async function runAutoTranslateTick(token) {
   if (!isTranslating.value || token !== autoTranslateToken) {
     return;
@@ -1044,6 +1285,7 @@ async function runAutoTranslateTick(token) {
 
   const crop = cropRequest();
   try {
+    addLog("info", `Auto tick: OCR request started. crop=${JSON.stringify(crop)}`);
     const ocrResponse = await invoke("ocr_text_command", {
       request: {
         windowTitle: windowTitle.value.trim(),
@@ -1055,6 +1297,7 @@ async function runAutoTranslateTick(token) {
         ...crop
       }
     });
+    addLog("info", `Auto tick: OCR request finished. sourceLength=${(ocrResponse.source || "").length}`);
     if (!isTranslating.value || token !== autoTranslateToken) {
       return;
     }
@@ -1207,29 +1450,117 @@ async function selectCaptureArea() {
 
   statusMessage.value = ui.value.selectingArea;
   addLog("info", "Opening draggable capture-area selector.");
+  const wasTranslating = isTranslating.value;
+  const wasOverlayVisible = overlayVisible.value;
+  if (wasTranslating) {
+    stopAutoTranslateLoop();
+    isTranslating.value = false;
+  }
+  if (wasOverlayVisible) {
+    await invoke("hide_translation_overlay_command").catch(() => {});
+    overlayVisible.value = false;
+  }
+  captureAreaSelectionResume = { wasTranslating, wasOverlayVisible };
   try {
-    const response = await invoke("select_area_command", {
+    const response = await invoke("preview_area_command", {
       request: {
         windowTitle: windowTitle.value.trim(),
-        hwnd: selectedWindowHwnd.value
+        hwnd: selectedWindowHwnd.value,
+        left: 0,
+        top: 0,
+        right: 1,
+        bottom: 1
       }
     });
-    if (response.cancelled) {
-      statusMessage.value = ui.value.stopped;
-      addLog("warn", "Area selection cancelled.");
-      return;
+    selectionImage.value = response.data_url || "";
+    selectionBox.value = null;
+    captureAreaSelectionStart = null;
+    isSelectingArea.value = Boolean(selectionImage.value);
+    if (!isSelectingArea.value) {
+      throw new Error("Full game window preview returned empty image.");
     }
-    cropLeft.value = String(response.left);
-    cropTop.value = String(response.top);
-    cropRight.value = String(response.right);
-    cropBottom.value = String(response.bottom);
-    statusMessage.value = ui.value.areaUpdated;
-    addLog("info", `Capture area updated: ${JSON.stringify(response)}`);
-    refreshCapturePreview();
+    addLog("info", `Capture-area image loaded: ${response.width}x${response.height}.`);
   } catch (error) {
     const detail = String(error || "Failed to select area");
     statusMessage.value = detail;
     addLog("error", detail);
+    await restoreAfterCaptureAreaSelection();
+  }
+}
+
+function selectionPoint(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  return {
+    x: Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1),
+    y: Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1)
+  };
+}
+
+function beginCaptureAreaSelection(event) {
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  captureAreaSelectionStart = selectionPoint(event);
+  selectionBox.value = { ...captureAreaSelectionStart, width: 0, height: 0 };
+}
+
+function moveCaptureAreaSelection(event) {
+  if (!captureAreaSelectionStart) {
+    return;
+  }
+  const current = selectionPoint(event);
+  selectionBox.value = {
+    x: Math.min(captureAreaSelectionStart.x, current.x),
+    y: Math.min(captureAreaSelectionStart.y, current.y),
+    width: Math.abs(current.x - captureAreaSelectionStart.x),
+    height: Math.abs(current.y - captureAreaSelectionStart.y)
+  };
+}
+
+async function finishCaptureAreaSelection(event) {
+  if (!captureAreaSelectionStart) {
+    return;
+  }
+  moveCaptureAreaSelection(event);
+  const box = selectionBox.value;
+  captureAreaSelectionStart = null;
+  if (!box || box.width < 0.01 || box.height < 0.01) {
+    await cancelCaptureAreaSelection();
+    return;
+  }
+  cropLeft.value = String(box.x);
+  cropTop.value = String(box.y);
+  cropRight.value = String(box.x + box.width);
+  cropBottom.value = String(box.y + box.height);
+  isSelectingArea.value = false;
+  selectionImage.value = "";
+  selectionBox.value = null;
+  statusMessage.value = ui.value.areaUpdated;
+  addLog("info", `Capture area updated: left=${cropLeft.value}, top=${cropTop.value}, right=${cropRight.value}, bottom=${cropBottom.value}`);
+  await refreshCapturePreview();
+  await restoreAfterCaptureAreaSelection();
+}
+
+async function cancelCaptureAreaSelection() {
+  captureAreaSelectionStart = null;
+  isSelectingArea.value = false;
+  selectionImage.value = "";
+  selectionBox.value = null;
+  statusMessage.value = ui.value.stopped;
+  addLog("warn", "Area selection cancelled.");
+  await restoreAfterCaptureAreaSelection();
+}
+
+async function restoreAfterCaptureAreaSelection() {
+  const resume = captureAreaSelectionResume;
+  captureAreaSelectionResume = null;
+  if (!resume) {
+    return;
+  }
+  if (resume.wasOverlayVisible) {
+    overlayVisible.value = true;
+    await syncTranslationOverlay(true);
+  }
+  if (resume.wasTranslating) {
+    await startOcrTranslation();
   }
 }
 
@@ -1259,6 +1590,10 @@ async function runTextTranslation() {
 function stopTranslation() {
   stopAutoTranslateLoop();
   isTranslating.value = false;
+  if (overlayVisible.value) {
+    invoke("hide_translation_overlay_command").catch(() => {});
+    overlayVisible.value = false;
+  }
   statusMessage.value = ui.value.stopped;
   addLog("warn", "Stop requested.");
 }

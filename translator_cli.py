@@ -286,7 +286,15 @@ def main(argv: list[str]) -> int:
         print_json(
             {
                 "windows": [
-                    {"title": window.title, "hwnd": window.hwnd, "label": f"{window.title} [{window.hwnd}]"}
+                    {
+                        "title": window.title,
+                        "hwnd": window.hwnd,
+                        "label": f"{window.title} [{window.hwnd}]",
+                        "x": window.rect[0],
+                        "y": window.rect[1],
+                        "width": window.rect[2] - window.rect[0],
+                        "height": window.rect[3] - window.rect[1],
+                    }
                     for window in list_capture_windows()
                 ]
             }

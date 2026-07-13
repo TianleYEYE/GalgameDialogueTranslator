@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="petal" cx="48%" cy="34%" r="72%">
+      <stop offset="0" stop-color="#fffdfd"/>
+      <stop offset="0.5" stop-color="#ffd9e4"/>
+      <stop offset="0.82" stop-color="#f49ab5"/>
+      <stop offset="1" stop-color="#d95583"/>
+    </radialGradient>
+    <radialGradient id="center" cx="45%" cy="38%" r="65%">
+      <stop offset="0" stop-color="#fff6bf"/>
+      <stop offset="0.55" stop-color="#f6c85d"/>
+      <stop offset="1" stop-color="#d88b2d"/>
+    </radialGradient>
+    <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#7e2548" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <g transform="translate(512 512)" filter="url(#soft-shadow)">
+    <g fill="url(#petal)" stroke="#c94676" stroke-width="18" stroke-linejoin="round">
+      <path d="M0-74 C-72-174-172-244-158-350 C-146-444-62-482 0-398 C62-482 146-444 158-350 C172-244 72-174 0-74Z"/>
+      <path d="M0-74 C-72-174-172-244-158-350 C-146-444-62-482 0-398 C62-482 146-444 158-350 C172-244 72-174 0-74Z" transform="rotate(72)"/>
+      <path d="M0-74 C-72-174-172-244-158-350 C-146-444-62-482 0-398 C62-482 146-444 158-350 C172-244 72-174 0-74Z" transform="rotate(144)"/>
+      <path d="M0-74 C-72-174-172-244-158-350 C-146-444-62-482 0-398 C62-482 146-444 158-350 C172-244 72-174 0-74Z" transform="rotate(216)"/>
+      <path d="M0-74 C-72-174-172-244-158-350 C-146-444-62-482 0-398 C62-482 146-444 158-350 C172-244 72-174 0-74Z" transform="rotate(288)"/>
+    </g>
+    <circle r="116" fill="#a93461" opacity="0.92"/>
+    <circle r="88" fill="url(#center)" stroke="#fff0a8" stroke-width="14"/>
+    <g fill="#fff8cf">
+      <circle cx="0" cy="-54" r="13"/>
+      <circle cx="51" cy="-17" r="13"/>
+      <circle cx="32" cy="44" r="13"/>
+      <circle cx="-32" cy="44" r="13"/>
+      <circle cx="-51" cy="-17" r="13"/>
+    </g>
+  </g>
+</svg>

@@ -5,6 +5,7 @@ __pycache__/
 build/
 dist/
 node_modules/
+.idea/
 src-tauri/target/
 
 *.log
